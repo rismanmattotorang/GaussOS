@@ -155,39 +155,53 @@ function getMockData(path: string): unknown {
     return { message: "OK" };
 }
 
-// Metrics SSE stream
+// Metrics SSE stream — polls the backend for REAL metrics and forwards them.
+// (Previously this emitted random numbers, so the live dashboard showed fake
+// data regardless of the backend.)
 function handleMetricsStream(): Response {
     let intervalId: number | undefined;
-    
+
     const body = new ReadableStream({
         start(controller) {
             const encoder = new TextEncoder();
-            
-            const sendMetrics = () => {
-                const data = {
-                    cpu: 25 + Math.random() * 20,
-                    memory: 45 + Math.random() * 10,
-                    requests: 12000 + Math.floor(Math.random() * 2000),
-                    cache: 94 + Math.random() * 2,
-                    connections: 150 + Math.floor(Math.random() * 50),
-                    timestamp: Date.now(),
-                };
+
+            const sendMetrics = async () => {
+                let data: Record<string, unknown>;
+                try {
+                    const res = await fetch(`${BACKEND_URL}/api/v1/metrics`, {
+                        signal: AbortSignal.timeout(3000),
+                    });
+                    const m = await res.json();
+                    // Map the backend metrics to the shape the dashboard renders.
+                    data = {
+                        cpu: m.cpu_usage_percent ?? 0,
+                        memory: m.memory_usage_mb ?? 0,
+                        requests: m.requests ?? 0,
+                        memories: m.memories ?? 0,
+                        cache: m.cache ?? 0,
+                        agents: m.agents ?? 0,
+                        timestamp: Date.now(),
+                        source: "backend",
+                    };
+                } catch {
+                    // Backend unreachable — signal it honestly instead of faking.
+                    data = { timestamp: Date.now(), source: "unavailable" };
+                }
                 try {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
                 } catch {
-                    // Stream closed
                     if (intervalId) clearInterval(intervalId);
                 }
             };
-            
+
             sendMetrics();
-            intervalId = setInterval(sendMetrics, 1000);
+            intervalId = setInterval(sendMetrics, 2000);
         },
         cancel() {
             if (intervalId) clearInterval(intervalId);
-        }
+        },
     });
-    
+
     return new Response(body, {
         headers: {
             "Content-Type": "text/event-stream",
@@ -255,7 +269,6 @@ function createHtml(): string {
                             <path d="M18 12h4"/>
                         </svg>
                         <span>Memories</span>
-                        <span class="nav-badge">15K</span>
                     </a>
                     <a class="nav-item" data-page="graphs">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -284,7 +297,6 @@ function createHtml(): string {
                             <path d="M18 15h2"/>
                         </svg>
                         <span>Agents</span>
-                        <span class="nav-badge">3</span>
                     </a>
                     <a class="nav-item" data-page="logs">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -389,25 +401,25 @@ function createHtml(): string {
                 <div class="stats-grid">
                     <div class="stat-card animate-fade-in stagger-1">
                         <div class="stat-icon">⚡</div>
-                        <div class="stat-value" id="stat-requests">12,847</div>
+                        <div class="stat-value" id="stat-requests">—</div>
                         <div class="stat-label">Requests / Second</div>
-                        <div class="stat-trend up">↑ 12.5% from last hour</div>
+                        
                     </div>
                     <div class="stat-card animate-fade-in stagger-2">
                         <div class="stat-icon">💾</div>
-                        <div class="stat-value" id="stat-memories">15,234</div>
+                        <div class="stat-value" id="stat-memories">—</div>
                         <div class="stat-label">Total Memories</div>
-                        <div class="stat-trend up">↑ 234 new today</div>
+                        
                     </div>
                     <div class="stat-card animate-fade-in stagger-3">
                         <div class="stat-icon">🎯</div>
-                        <div class="stat-value" id="stat-cache">94.2%</div>
+                        <div class="stat-value" id="stat-cache">—</div>
                         <div class="stat-label">Cache Hit Rate</div>
-                        <div class="stat-trend up">↑ 2.3% improvement</div>
+                        
                     </div>
                     <div class="stat-card animate-fade-in stagger-4">
                         <div class="stat-icon">🤖</div>
-                        <div class="stat-value" id="stat-agents">3</div>
+                        <div class="stat-value" id="stat-agents">—</div>
                         <div class="stat-label">Active Agents</div>
                         <div class="stat-trend">Healthy</div>
                     </div>

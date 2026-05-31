@@ -867,20 +867,29 @@ pub async fn system_status(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
-    let real_time_metrics = match state.database.get_real_time_metrics().await {
-        Ok(metrics) => metrics,
-        Err(_) => crate::database::RealTimeMetrics::default(),
-    };
+    let stats = state.database.get_stats().await.unwrap_or_default();
 
+    // Real host metrics via sysinfo (backend-independent, never fabricated).
+    let mut sys = sysinfo::System::new();
+    sys.refresh_cpu();
+    sys.refresh_memory();
+    let cpu = sys.global_cpu_info().cpu_usage() as f64;
+    let mem_used_mb = sys.used_memory() as f64 / 1_048_576.0;
+
+    // Includes the fields the dashboard renders (memories, cache, agents,
+    // requests) so the UI shows live data instead of placeholders.
     Json(serde_json::json!({
-        "memory_operations_total": 1000,
-        "active_queries": real_time_metrics.active_queries,
-        "cache_hit_rate": real_time_metrics.cache_hit_rate,
-        "operations_per_second": real_time_metrics.operations_per_second,
-        "connection_utilization": real_time_metrics.connection_utilization,
-        "memory_usage_mb": real_time_metrics.memory_usage_mb,
-        "cpu_usage_percent": real_time_metrics.cpu_usage_percent,
-        "timestamp": real_time_metrics.timestamp
+        "memories": stats.total_memories,
+        "cache": stats.performance_metrics.cache_hit_rate * 100.0,
+        "agents": 0,
+        "requests": stats.performance_metrics.queries_per_second as u64,
+        "memory_operations_total": stats.total_memories,
+        "cache_hit_rate": stats.performance_metrics.cache_hit_rate,
+        "operations_per_second": stats.performance_metrics.queries_per_second,
+        "memory_usage_mb": mem_used_mb,
+        "cpu_usage_percent": cpu,
+        "storage_bytes": stats.storage_size,
+        "timestamp": Utc::now()
     }))
 }
 

@@ -673,13 +673,13 @@ pub fn create_router(state: AppState) -> Router<AppState> {
 
 /// Enhanced server startup function
 pub async fn start_server(config: ApiConfig) -> crate::Result<()> {
-    // Prefer the hybrid backend; fall back to the in-memory vault when external
-    // databases are unreachable so the server always starts.
+    // Default to the embedded SurrealDB backend (real SurrealQL engine, no
+    // external server). Fall back to the in-memory vault if it cannot start.
     let database: Arc<dyn crate::database::MemVault> =
-        match crate::database::HybridMemoryVault::new(crate::database::HybridConfig::default()).await {
+        match crate::database::SurrealVault::new("mem://").await {
             Ok(v) => Arc::new(v),
             Err(e) => {
-                tracing::warn!("Hybrid backend unavailable ({}); using in-memory vault", e);
+                tracing::warn!("Embedded SurrealDB unavailable ({}); using in-memory vault", e);
                 Arc::new(crate::database::InMemoryVault::new())
             }
         };

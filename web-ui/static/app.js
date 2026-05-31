@@ -161,10 +161,12 @@ class GaussOSApp {
 
     updateMetricsDisplay() {
         const m = this.state.metrics;
-        this.updateElement('stat-requests', this.formatNumber(m.requests || 0));
-        this.updateElement('stat-memories', this.formatNumber(m.memories || 15234));
-        this.updateElement('stat-cache', `${(m.cache || 94.2).toFixed(1)}%`);
-        this.updateElement('stat-agents', m.agents || 3);
+        // Show real values from the backend; default to 0 rather than invented
+        // numbers so the dashboard never displays fabricated data.
+        this.updateElement('stat-requests', this.formatNumber(m.requests ?? 0));
+        this.updateElement('stat-memories', this.formatNumber(m.memories ?? 0));
+        this.updateElement('stat-cache', `${(m.cache ?? 0).toFixed(1)}%`);
+        this.updateElement('stat-agents', m.agents ?? 0);
         
         if (this.charts.performance) {
             this.updatePerformanceChart(m);

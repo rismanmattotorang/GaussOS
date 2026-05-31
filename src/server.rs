@@ -57,16 +57,16 @@ impl GaussOSServer {
     async fn initialize_database(config: &GaussOSConfig) -> Result<Arc<dyn MemVault>> {
         info!("Initializing database backend...");
         
-        // Try the hybrid backend (external Postgres/SurrealDB); if it is not
-        // reachable, fall back to the fully-functional in-memory vault so the
-        // server always starts and serves correctly.
-        match DatabaseFactory::create_hybrid_vault().await {
+        // Default to the embedded SurrealDB backend (real SurrealQL engine, no
+        // external server required); fall back to the in-memory vault if it
+        // cannot start, so the server always comes up and serves correctly.
+        match crate::database::SurrealVault::new("mem://").await {
             Ok(vault) => {
-                info!("Hybrid database vault initialized successfully");
+                info!("Embedded SurrealDB vault initialized successfully");
                 Ok(Arc::new(vault) as Arc<dyn MemVault>)
             }
             Err(e) => {
-                warn!("Hybrid backend unavailable ({}); using in-memory vault", e);
+                warn!("Embedded SurrealDB unavailable ({}); using in-memory vault", e);
                 Ok(Arc::new(crate::database::InMemoryVault::new()) as Arc<dyn MemVault>)
             }
         }
