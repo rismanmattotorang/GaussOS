@@ -30,7 +30,7 @@ pub use schemas::{
     ConversationSummarySchema, ExtractionMode, MemorySchema, PromptOptimizationSchema,
     SchemaRegistry, UserProfileSchema,
 };
-pub use ann::{BinaryQuantized, Distance, Hnsw, HnswConfig, Neighbor, ScalarQuantized};
+pub use ann::{BinaryQuantized, Distance, Hnsw, HnswConfig, Neighbor, QuantizedIndex, ScalarQuantized};
 pub use community::{detect_communities, Community, CommunityConfig};
 pub use decay::{DecayConfig, ForgettingCurve, RetentionAction, RetentionPlan, RetentionScore};
 pub use eval::{evaluate, EvalCase, RetrievalMetrics};

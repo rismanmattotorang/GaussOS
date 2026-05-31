@@ -13,14 +13,16 @@
 //! reaches recall@10 ≈ 0.95+ on typical embedding workloads — matching the
 //! published HNSW operating points.
 
+use crate::error::{GaussOSError, Result};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use uuid::Uuid;
 
 /// Distance metric for the index.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Distance {
     /// Cosine distance `1 - cos(a, b)`; vectors are L2-normalised on insert so
     /// the dot product equals cosine similarity.
@@ -30,7 +32,7 @@ pub enum Distance {
 }
 
 /// Tunable HNSW parameters.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HnswConfig {
     /// Max neighbours per node on layers > 0.
     pub m: usize,
@@ -125,6 +127,9 @@ pub struct Hnsw {
     distance: Distance,
     nodes: Vec<Node>,
     id_to_idx: HashMap<Uuid, u32>,
+    /// Soft-delete flags parallel to `nodes`. Tombstoned nodes stay in the graph
+    /// for connectivity but are excluded from results.
+    tombstoned: Vec<bool>,
     entry_point: Option<u32>,
     max_level: usize,
     /// `1 / ln(m)`, the level-assignment normalisation factor.
@@ -141,6 +146,7 @@ impl Hnsw {
             distance,
             nodes: Vec::new(),
             id_to_idx: HashMap::new(),
+            tombstoned: Vec::new(),
             entry_point: None,
             max_level: 0,
             level_mult,
@@ -148,16 +154,32 @@ impl Hnsw {
         }
     }
 
+    /// Number of *live* (non-tombstoned) vectors.
     pub fn len(&self) -> usize {
-        self.nodes.len()
+        self.tombstoned.iter().filter(|t| !**t).count()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
+        self.len() == 0
     }
 
+    /// True if `id` is present and not tombstoned.
     pub fn contains(&self, id: &Uuid) -> bool {
-        self.id_to_idx.contains_key(id)
+        self.id_to_idx
+            .get(id)
+            .map(|&i| !self.tombstoned[i as usize])
+            .unwrap_or(false)
+    }
+
+    /// Soft-delete a vector. It remains in the graph for connectivity but is
+    /// excluded from search results. Returns true if the id was present.
+    pub fn remove(&mut self, id: &Uuid) -> bool {
+        if let Some(&i) = self.id_to_idx.get(id) {
+            self.tombstoned[i as usize] = true;
+            true
+        } else {
+            false
+        }
     }
 
     /// Prepare a vector for storage: L2-normalise for cosine so dot == cosine.
@@ -199,9 +221,12 @@ impl Hnsw {
         (-r.ln() * self.level_mult).floor() as usize
     }
 
-    /// Insert a vector under `id`. Re-inserting an existing id is a no-op.
+    /// Insert a vector under `id`. If `id` already exists and was tombstoned, it
+    /// is reactivated (with its prior vector); otherwise re-inserting is a no-op.
     pub fn insert(&mut self, id: Uuid, vector: Vec<f32>) {
-        if self.id_to_idx.contains_key(&id) {
+        if let Some(&existing) = self.id_to_idx.get(&id) {
+            // Reactivate a previously soft-deleted node.
+            self.tombstoned[existing as usize] = false;
             return;
         }
         let vector = self.prepare(vector);
@@ -212,6 +237,7 @@ impl Hnsw {
             vector,
             links: vec![Vec::new(); level + 1],
         });
+        self.tombstoned.push(false);
         self.id_to_idx.insert(id, idx);
 
         // First node becomes the entry point.
@@ -407,10 +433,12 @@ impl Hnsw {
             l -= 1;
         }
 
-        // Full search on layer 0.
+        // Full search on layer 0. Widen the candidate pool so that, after
+        // dropping tombstoned nodes, we can still return up to k live results.
         let found = self.search_layer(&q, &[ep], ef.max(k), 0);
         found
             .into_iter()
+            .filter(|e| !self.tombstoned[e.idx as usize])
             .take(k)
             .map(|e| Neighbor {
                 id: self.nodes[e.idx as usize].id,
@@ -418,6 +446,92 @@ impl Hnsw {
             })
             .collect()
     }
+
+    // ---- Persistence ----
+
+    /// Serialize the full index (graph, vectors, tombstones, parameters) to a
+    /// portable byte buffer. The RNG is reconstructed from the seed on load, so
+    /// it is not part of the snapshot.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let snapshot = HnswSnapshot {
+            distance: self.distance,
+            m: self.config.m,
+            m0: self.config.m0,
+            ef_construction: self.config.ef_construction,
+            ef_search: self.config.ef_search,
+            seed: self.config.seed,
+            entry_point: self.entry_point,
+            max_level: self.max_level,
+            nodes: self
+                .nodes
+                .iter()
+                .enumerate()
+                .map(|(i, n)| NodeData {
+                    id: n.id,
+                    vector: n.vector.clone(),
+                    links: n.links.clone(),
+                    tombstoned: self.tombstoned[i],
+                })
+                .collect(),
+        };
+        bincode::serialize(&snapshot).unwrap_or_default()
+    }
+
+    /// Reconstruct an index from [`Self::to_bytes`].
+    pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        let snapshot: HnswSnapshot = bincode::deserialize(data)
+            .map_err(|e| GaussOSError::ValidationError(format!("HNSW deserialize failed: {e}")))?;
+        let config = HnswConfig {
+            m: snapshot.m,
+            m0: snapshot.m0,
+            ef_construction: snapshot.ef_construction,
+            ef_search: snapshot.ef_search,
+            seed: snapshot.seed,
+        };
+        let level_mult = 1.0 / (config.m.max(2) as f64).ln();
+        let mut id_to_idx = HashMap::new();
+        let mut nodes = Vec::with_capacity(snapshot.nodes.len());
+        let mut tombstoned = Vec::with_capacity(snapshot.nodes.len());
+        for (i, nd) in snapshot.nodes.into_iter().enumerate() {
+            id_to_idx.insert(nd.id, i as u32);
+            nodes.push(Node { id: nd.id, vector: nd.vector, links: nd.links });
+            tombstoned.push(nd.tombstoned);
+        }
+        Ok(Self {
+            distance: snapshot.distance,
+            rng: StdRng::seed_from_u64(config.seed),
+            config,
+            nodes,
+            id_to_idx,
+            tombstoned,
+            entry_point: snapshot.entry_point,
+            max_level: snapshot.max_level,
+            level_mult,
+        })
+    }
+}
+
+/// Serializable per-node record.
+#[derive(Serialize, Deserialize)]
+struct NodeData {
+    id: Uuid,
+    vector: Vec<f32>,
+    links: Vec<Vec<u32>>,
+    tombstoned: bool,
+}
+
+/// Serializable index snapshot (everything except the reconstructable RNG).
+#[derive(Serialize, Deserialize)]
+struct HnswSnapshot {
+    distance: Distance,
+    m: usize,
+    m0: usize,
+    ef_construction: usize,
+    ef_search: usize,
+    seed: u64,
+    entry_point: Option<u32>,
+    max_level: usize,
+    nodes: Vec<NodeData>,
 }
 
 #[cfg(test)]
@@ -451,6 +565,55 @@ mod tests {
         h.insert(id(1), vec![1.0, 0.0]);
         h.insert(id(1), vec![0.0, 1.0]);
         assert_eq!(h.len(), 1);
+    }
+
+    #[test]
+    fn delete_excludes_from_results_and_reactivates() {
+        let mut h = Hnsw::new(Distance::Cosine, HnswConfig::default());
+        h.insert(id(1), vec![1.0, 0.0, 0.0]);
+        h.insert(id(2), vec![0.9, 0.1, 0.0]);
+        h.insert(id(3), vec![0.0, 0.0, 1.0]);
+        assert_eq!(h.len(), 3);
+
+        // Delete the exact match; the next-best should now win.
+        assert!(h.remove(&id(1)));
+        assert_eq!(h.len(), 2);
+        assert!(!h.contains(&id(1)));
+        let res = h.search(&[1.0, 0.0, 0.0], 2);
+        assert!(res.iter().all(|n| n.id != id(1)));
+        assert_eq!(res[0].id, id(2));
+
+        // Re-insert reactivates it.
+        h.insert(id(1), vec![1.0, 0.0, 0.0]);
+        assert!(h.contains(&id(1)));
+        assert_eq!(h.len(), 3);
+        assert_eq!(h.search(&[1.0, 0.0, 0.0], 1)[0].id, id(1));
+    }
+
+    #[test]
+    fn persistence_roundtrip_preserves_search() {
+        let mut h = Hnsw::new(Distance::Cosine, HnswConfig::default());
+        for i in 0..200u128 {
+            let a = i as f32 * 0.05;
+            h.insert(id(i), vec![a.cos(), a.sin()]);
+        }
+        h.remove(&id(7)); // tombstone survives the roundtrip
+
+        let bytes = h.to_bytes();
+        assert!(!bytes.is_empty());
+        let restored = Hnsw::from_bytes(&bytes).expect("deserialize");
+        assert_eq!(restored.len(), h.len());
+        assert!(!restored.contains(&id(7)));
+
+        // Same query returns the same top hit before and after persistence.
+        let q_angle = 40.0_f32 * 0.05;
+        let q = [q_angle.cos(), q_angle.sin()];
+        assert_eq!(h.search(&q, 1)[0].id, restored.search(&q, 1)[0].id);
+    }
+
+    #[test]
+    fn from_bytes_rejects_garbage() {
+        assert!(Hnsw::from_bytes(b"not a valid snapshot").is_err());
     }
 
     #[test]

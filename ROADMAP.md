@@ -54,12 +54,16 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
 
 ## Phase 2 — Data structures & performance
 
-10. **🧭 HNSW: deletes, persistence, on‑disk tier.** Tombstoned deletes +
-    incremental compaction; mmap‑backed persistence; optional DiskANN/Vamana
-    on‑disk graph for billion‑scale. *Files:* `memory/ann/hnsw.rs`, new `ann/disk.rs`.
-11. **🧭 Quantized ANN search path.** Binary pre‑filter (Hamming/popcount) →
-    full‑precision rescore ("oversample + rescore"), wiring `quantization.rs`
-    into the HNSW search loop for 4–32× memory savings at equal recall.
+10. **🟡 HNSW: deletes, persistence, on‑disk tier.** ✅ Tombstoned deletes (with
+    reactivation on re‑insert) and ✅ byte‑buffer persistence
+    (`to_bytes`/`from_bytes`) are done and tested; `delete_memory` now
+    soft‑deletes from the index, and `MemoryManager` can export/import it.
+    🧭 Remaining: incremental compaction, mmap‑backed persistence, and an
+    optional DiskANN/Vamana on‑disk graph for billion‑scale.
+    *Files:* `memory/ann/hnsw.rs`, `memory/manager.rs`, future `ann/disk.rs`.
+11. **✅ Quantized ANN search path.** `memory/ann/quantized_index.rs` implements
+    binary pre‑filter (Hamming/popcount) → int8 rescore ("oversample +
+    rescore"): ~3.5× smaller than f32 with high recall (tested vs brute force).
 12. **🧭 SIMD/AVX‑512 distance kernels** for cosine/L2/Hamming, behind `simd`.
 13. **🧭 Lock‑free, sharded vector index** for concurrent insert/search; arena
     allocation for `MemCube` payloads to cut allocator pressure.

@@ -805,12 +805,15 @@ impl MemoryManager {
     pub async fn delete_memory(&self, id: &Uuid) -> Result<()> {
         // Remove from vault
         self.vault.delete(id).await?;
-        
+
         // Remove from caches
         self.l1_cache.remove(id);
         self.l2_cache.remove(id);
         self.l3_cache.remove(id);
-        
+
+        // Soft-delete from the ANN index so it stops appearing in results.
+        self.vector_index.write().remove(id);
+
         perf::incr("memory.delete_total");
 
         Ok(())
@@ -1146,6 +1149,19 @@ impl MemoryManager {
     /// Number of vectors currently held in the ANN index.
     pub fn vector_index_len(&self) -> usize {
         self.vector_index.read().len()
+    }
+
+    /// Serialize the ANN index to a portable byte buffer (for snapshotting /
+    /// warm restarts without re-embedding every memory).
+    pub fn export_vector_index(&self) -> Vec<u8> {
+        self.vector_index.read().to_bytes()
+    }
+
+    /// Replace the ANN index from a buffer produced by [`Self::export_vector_index`].
+    pub fn import_vector_index(&self, bytes: &[u8]) -> Result<()> {
+        let restored = Hnsw::from_bytes(bytes)?;
+        *self.vector_index.write() = restored;
+        Ok(())
     }
 
     /// Multi-hop retrieval over the bi-temporal fact graph via Personalized
