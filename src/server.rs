@@ -97,6 +97,17 @@ impl GaussOSServer {
             .route("/memories/:id/snapshot", post(crate::api::handlers::create_snapshot))
             .route("/memories/:id/rollback", post(crate::api::handlers::rollback_memory))
             .route("/memories/:id/provenance", get(crate::api::handlers::get_provenance))
+            // Approximate-nearest-neighbour vector search
+            .route("/memories/ann-search", post(crate::api::handlers::ann_search))
+            // Health/metrics under /api/v1 too (the web UI calls these)
+            .route("/health", get(crate::api::handlers::detailed_health_check))
+            .route("/metrics", get(crate::api::handlers::metrics))
+            // Bi-temporal knowledge graph + multi-hop retrieval
+            .route("/facts", post(crate::api::handlers::ingest_fact))
+            .route("/facts/graph-search", post(crate::api::handlers::graph_search))
+            .route("/facts/:subject", get(crate::api::handlers::get_facts))
+            .route("/facts/:subject/:predicate", get(crate::api::handlers::get_fact_history))
+            .route("/admin/forget", post(crate::api::handlers::forget_memories))
             // Graph operations
             .route("/graph/nodes", get(crate::api::handlers::get_graph_nodes))
             .route("/graph/edges", get(crate::api::handlers::get_graph_edges))

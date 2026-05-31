@@ -1,8 +1,7 @@
 // Enhanced GaussOS Server - Production Ready with Deno
 // File: server.ts
 
-import { serve } from "https://deno.land/std@0.220.0/http/server.ts";
-import { serveDir } from "https://deno.land/std@0.220.0/http/file_server.ts";
+// Uses Deno's built-in HTTP server (no external std dependency required).
 
 // Configuration management
 interface ServerConfig {
@@ -703,15 +702,16 @@ async function main() {
   console.log(`🔒 Security features enabled: CSP=${config.security.enableCSP}, HSTS=${config.security.enableHSTS}`);
   console.log(`⚡ Rate limiting: ${config.rateLimit.maxRequests} requests per ${config.rateLimit.windowMs/1000}s`);
 
-  await serve(
-    (req) => app.handleRequest(req),
-    { 
+  const server = Deno.serve(
+    {
       port: config.port,
       onListen: ({ port }) => {
         console.log(`✅ GaussOS Server listening on http://localhost:${port}`);
       },
-    }
+    },
+    (req) => app.handleRequest(req),
   );
+  await server.finished;
 }
 
 // Graceful shutdown handling

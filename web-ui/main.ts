@@ -2,7 +2,7 @@
 // A distinctive, modern interface built with Cosmic Minimalism design
 // Enhanced with real-time updates and comprehensive error handling
 
-import { serve } from "https://deno.land/std@0.220.0/http/server.ts";
+// Uses Deno's built-in HTTP server (no external std dependency required).
 
 const PORT = parseInt(Deno.env.get("PORT") || "3000");
 const BACKEND_URL = Deno.env.get("BACKEND_URL") || "http://localhost:8080";
@@ -780,4 +780,4 @@ console.log("🧠 GaussOS Web UI v3.0");
 console.log(`   Listening on http://localhost:${PORT}`);
 console.log("   Press Ctrl+C to stop\n");
 
-serve(handler, { port: PORT });
+Deno.serve({ port: PORT }, handler);

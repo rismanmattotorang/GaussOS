@@ -32,8 +32,9 @@ impl PostgresVault {
 
         let pool = PgPoolOptions::new()
             .max_connections(20)
-            .min_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(30))
+            // Fail fast when PostgreSQL is unreachable so the system can fall
+            // back to other backends quickly instead of stalling on startup.
+            .acquire_timeout(std::time::Duration::from_secs(3))
             .idle_timeout(std::time::Duration::from_secs(300))
             .max_lifetime(std::time::Duration::from_secs(1800))
             .connect(connection_string)

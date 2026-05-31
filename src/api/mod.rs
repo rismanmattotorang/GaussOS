@@ -652,12 +652,22 @@ pub fn create_router(state: AppState) -> Router<AppState> {
         .route("/api/v1/memories/:id", put(handlers::update_memory))
         .route("/api/v1/memories/:id", delete(handlers::delete_memory))
         .route("/api/v1/memories/search", post(handlers::search_memories))
-        // Health and metrics endpoints
+        // Approximate-nearest-neighbour (HNSW) vector search
+        .route("/api/v1/memories/ann-search", post(handlers::ann_search))
+        // Bi-temporal knowledge graph + multi-hop graph retrieval
+        .route("/api/v1/facts", post(handlers::ingest_fact))
+        .route("/api/v1/facts/graph-search", post(handlers::graph_search))
+        .route("/api/v1/facts/:subject", get(handlers::get_facts))
+        .route("/api/v1/facts/:subject/:predicate", get(handlers::get_fact_history))
+        // Health and metrics endpoints (both root and /api/v1 for the web UI)
         .route("/health", get(handlers::health_check))
         .route("/metrics", get(handlers::metrics))
+        .route("/api/v1/health", get(handlers::detailed_health_check))
+        .route("/api/v1/metrics", get(handlers::metrics))
         // Administrative endpoints (less frequent)
         .route("/api/v1/admin/stats", get(handlers::admin_stats))
         .route("/api/v1/admin/backup", post(handlers::create_backup))
+        .route("/api/v1/admin/forget", post(handlers::forget_memories))
         .with_state(state)
 }
 
