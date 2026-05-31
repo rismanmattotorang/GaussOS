@@ -1073,6 +1073,31 @@ impl MemoryManager {
         self.temporal.write().ingest(fact)
     }
 
+    /// Run the LLM-driven extract → update ingestion pipeline over a set of
+    /// conversation messages, forming durable bi-temporal facts. Uses the
+    /// configured LLM provider when available, else a deterministic heuristic
+    /// extractor (so it always works offline).
+    pub async fn ingest_conversation(
+        &self,
+        messages: &[Message],
+    ) -> crate::memory::ingest::IngestReport {
+        let ingestor = crate::memory::ingest::MemoryIngestor::default();
+        let llm = crate::agents::llm::LlmClient::from_env();
+        // Extract first (may await the LLM) WITHOUT holding the store lock, then
+        // apply synchronously under the lock so the future stays Send.
+        let facts = ingestor.extract(messages, &llm).await;
+        let mut store = self.temporal.write();
+        ingestor.apply_all(&mut store, facts)
+    }
+
+    /// Detect communities over the current entity graph (GraphRAG-style).
+    pub fn detect_communities(&self) -> Vec<crate::memory::community::Community> {
+        crate::memory::community::detect_communities(
+            &self.temporal.read(),
+            &crate::memory::community::CommunityConfig::default(),
+        )
+    }
+
     /// All facts the system currently believes about a subject.
     pub fn current_facts_about(&self, subject: &str) -> Vec<TemporalFact> {
         self.temporal

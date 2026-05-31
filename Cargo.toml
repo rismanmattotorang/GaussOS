@@ -189,6 +189,11 @@ harness = false
 name = "simple_benchmarks"
 harness = false
 
+# Phase 0 reproducible engine benchmarks (hybrid retrieval, HNSW, PPR).
+[[bench]]
+name = "engine_bench"
+harness = false
+
 [features]
 default = ["cli", "hybrid", "parallel", "lock-free", "jwt-auth"]
 
