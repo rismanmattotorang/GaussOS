@@ -503,14 +503,14 @@ impl AgentOrchestrator {
         messages: Vec<ConversationEntry>,
         _context: HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value> {
-        let client = crate::agents::llm::AnthropicClient::from_env();
+        let client = crate::agents::llm::LlmClient::from_env();
 
         // Without an API key, report honestly rather than fabricating a reply.
         if !client.is_configured() {
             return Ok(serde_json::json!({
                 "status": "llm_not_configured",
-                "provider": "anthropic",
-                "response": "Agent LLM is not configured. Set ANTHROPIC_API_KEY to enable live responses.",
+                "provider": client.provider(),
+                "response": "Agent LLM is not configured. Set LLM_PROVIDER and the matching API key (e.g. OPENAI_API_KEY / DEEPSEEK_API_KEY / ANTHROPIC_API_KEY) to enable live responses.",
             }));
         }
 
@@ -524,13 +524,13 @@ impl AgentOrchestrator {
         match client.complete(system, &turns).await {
             Ok(text) => Ok(serde_json::json!({
                 "status": "completed",
-                "provider": "anthropic",
+                "provider": client.provider(),
                 "model": client.model(),
                 "response": text,
             })),
             Err(e) => Ok(serde_json::json!({
                 "status": "error",
-                "provider": "anthropic",
+                "provider": client.provider(),
                 "error": e.to_string(),
             })),
         }

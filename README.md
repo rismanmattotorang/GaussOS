@@ -226,6 +226,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
+## 🤖 LLM Providers (flexible, multi-vendor)
+
+GaussOS's agent layer is **provider-agnostic**. It speaks two wire protocols —
+the **Anthropic Messages API** and the **OpenAI-compatible Chat Completions API**
+— and ships presets for the major vendors. You enable a provider purely through
+environment variables; no code changes or rebuilds are required.
+
+| Provider | `LLM_PROVIDER` | Protocol | Default base URL | Key env |
+|---|---|---|---|---|
+| Anthropic (Claude) | `anthropic` | Anthropic Messages | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` |
+| OpenAI (GPT) | `openai` | OpenAI Chat Completions | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
+| DeepSeek | `deepseek` | OpenAI-compatible | `https://api.deepseek.com/v1` | `DEEPSEEK_API_KEY` |
+| Qwen (DashScope) | `qwen` | OpenAI-compatible | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `DASHSCOPE_API_KEY` |
+| BytePlus (ModelArk) | `byteplus` | OpenAI-compatible | `https://ark.ap-southeast.bytepluses.com/api/v3` | `BYTEPLUS_API_KEY` |
+| OpenRouter | `openrouter` | OpenAI-compatible | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| Any OpenAI-compatible (Ollama, vLLM, LM Studio, …) | `custom` | OpenAI-compatible | `LLM_BASE_URL` (required) | `LLM_API_KEY` |
+
+**How selection works**
+
+- Set `LLM_PROVIDER` to pick a provider explicitly. If you leave it unset,
+  GaussOS auto-selects the first provider whose API key is present.
+- `LLM_MODEL`, `LLM_BASE_URL`, and `LLM_API_KEY` override the provider defaults
+  (handy for routing, proxies/gateways, or pinning a model).
+- With no key configured, the agent layer returns an honest
+  `llm_not_configured` status instead of fabricating a response.
+
+```bash
+# OpenAI GPT
+export LLM_PROVIDER=openai      OPENAI_API_KEY=sk-...        # model: gpt-4o-mini
+
+# DeepSeek
+export LLM_PROVIDER=deepseek    DEEPSEEK_API_KEY=sk-...      # model: deepseek-chat
+
+# Qwen via DashScope (OpenAI-compatible)
+export LLM_PROVIDER=qwen        DASHSCOPE_API_KEY=sk-...     # model: qwen-plus
+
+# BytePlus ModelArk
+export LLM_PROVIDER=byteplus    BYTEPLUS_API_KEY=...         LLM_MODEL=<your-endpoint-id>
+
+# OpenRouter (route to any model)
+export LLM_PROVIDER=openrouter  OPENROUTER_API_KEY=sk-or-... LLM_MODEL=deepseek/deepseek-chat
+
+# Anthropic Claude
+export LLM_PROVIDER=anthropic   ANTHROPIC_API_KEY=sk-ant-... # model: claude-sonnet-4-6
+
+# Any local OpenAI-compatible server (e.g. Ollama)
+export LLM_PROVIDER=custom      LLM_BASE_URL=http://localhost:11434/v1  LLM_MODEL=llama3.1  LLM_API_KEY=ollama
+```
+
+See [`.env.example`](.env.example) for the full list, and
+[`src/agents/llm.rs`](src/agents/llm.rs) for the implementation.
+
 ## 🛠️ Configuration
 
 ### **Performance Configuration**

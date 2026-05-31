@@ -110,3 +110,18 @@ always reverse.
 All four modules are storage-agnostic, allocation-light, and covered by unit
 tests (`cargo test`) plus an end-to-end example
 (`cargo run --example agent_memory_showcase`).
+
+## Agent LLM layer (multi-provider)
+
+The agent layer that turns memory into action is **provider-agnostic**. A single
+flexible client ([`src/agents/llm.rs`](src/agents/llm.rs)) speaks both the
+Anthropic Messages API and the OpenAI-compatible Chat Completions API, with
+presets for **OpenAI (GPT), DeepSeek, Qwen (DashScope), BytePlus (ModelArk),
+OpenRouter, and Anthropic (Claude)**, plus a `custom` mode for any
+OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, gateways).
+
+Selection and configuration are entirely environment-driven (`LLM_PROVIDER`,
+`LLM_MODEL`, `LLM_BASE_URL`, `LLM_API_KEY`, or provider-specific key envs); see
+the [LLM Providers section of the README](README.md#-llm-providers-flexible-multi-vendor)
+and [`.env.example`](.env.example). When no key is configured the agent layer
+degrades honestly (`llm_not_configured`) rather than fabricating output.
