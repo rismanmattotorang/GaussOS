@@ -1,0 +1,63 @@
+# Default values for the GaussOS Helm chart.
+
+replicaCount: 1
+
+image:
+  repository: gaussos
+  tag: "3.0.0"
+  pullPolicy: IfNotPresent
+
+# Persistence for the embedded SurrealDB RocksDB store. When enabled, sets
+# GAUSSOS_SURREAL_PATH and mounts a PersistentVolumeClaim.
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+  mountPath: /data
+  surrealSubPath: surreal
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Liveness/readiness probe path served by the API.
+healthPath: /api/v1/health
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+# Environment configuration.
+env:
+  RUST_LOG: info
+  # OTLP trace export (point at your collector to enable):
+  # OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_SERVICE_NAME: gaussos
+
+# LLM provider key, mounted from a Secret if provided.
+llm:
+  provider: ""        # e.g. openai, deepseek, qwen, openrouter
+  existingSecret: ""  # Secret holding the API key
+  secretKey: api-key  # key within that Secret
+
+# ServiceMonitor for the Prometheus Operator (optional).
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    path: /metrics/prometheus
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

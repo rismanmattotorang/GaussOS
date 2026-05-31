@@ -1,0 +1,14 @@
+apiVersion: v2
+name: gaussos
+description: GaussOS — advanced agent-memory engine by Gaussian Technologies
+type: application
+version: 0.1.0
+appVersion: "3.0.0"
+keywords:
+  - ai
+  - agent-memory
+  - vector
+  - knowledge-graph
+home: https://github.com/gaussos/gaussos
+maintainers:
+  - name: Gaussian Technologies

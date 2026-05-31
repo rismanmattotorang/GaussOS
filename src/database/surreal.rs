@@ -62,12 +62,34 @@ impl SurrealVault {
 
         #[cfg(feature = "surrealdb-backend")]
         {
-            use surrealdb::engine::local::Mem;
+            use surrealdb::engine::local::{Mem, RocksDb};
             use surrealdb::Surreal;
 
-            let db = Surreal::new::<Mem>(())
-                .await
-                .map_err(|e| GaussOSError::DatabaseError(format!("SurrealDB init failed: {e}")))?;
+            // If GAUSSOS_SURREAL_PATH is set, persist to an on-disk RocksDB
+            // store; otherwise run a fast ephemeral in-memory engine. The
+            // `endpoint` hint may also carry a `rocksdb://<path>` or
+            // `file://<path>` scheme for explicit persistence.
+            let disk_path = std::env::var("GAUSSOS_SURREAL_PATH")
+                .ok()
+                .filter(|p| !p.is_empty())
+                .or_else(|| {
+                    endpoint
+                        .strip_prefix("rocksdb://")
+                        .or_else(|| endpoint.strip_prefix("file://"))
+                        .map(|p| p.to_string())
+                });
+
+            let db = match disk_path {
+                Some(path) => {
+                    info!("SurrealDB persisting to RocksDB at {path}");
+                    Surreal::new::<RocksDb>(path.as_str()).await.map_err(|e| {
+                        GaussOSError::DatabaseError(format!("SurrealDB RocksDB init failed: {e}"))
+                    })?
+                }
+                None => Surreal::new::<Mem>(()).await.map_err(|e| {
+                    GaussOSError::DatabaseError(format!("SurrealDB init failed: {e}"))
+                })?,
+            };
             db.use_ns(namespace)
                 .use_db(database)
                 .await

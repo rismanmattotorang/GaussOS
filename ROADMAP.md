@@ -130,26 +130,40 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
 
 ## Phase 5 — Platform & operations
 
-24. **🟡 Snapshot backup/restore.** ✅ `GET /api/v1/admin/export` (full JSON
-    snapshot) and `POST /api/v1/admin/import` (restore/migrate), via
+24. **✅ Snapshot backup/restore + persistence.** `GET /api/v1/admin/export`
+    (full JSON snapshot) and `POST /api/v1/admin/import` (restore/migrate), via
     `MemoryManager::export_all`/`import_memories`; verified round-trip through the
-    Python SDK. 🧭 Remaining: RocksDB on-disk persistence + external SurrealDB/
-    Postgres for HA.
-25. **🧭 Distributed mode.** Sharded namespaces, replication, consistent-hash ring.
-26. **🟡 Observability.** ✅ Prometheus text-exposition endpoint at
-    `/metrics/prometheus` (memories, storage, vector index, facts, CPU, memory).
-    🧭 Remaining: OpenTelemetry traces + Grafana dashboards; wire lifecycle/
-    scheduler into the server runtime.
+    Python SDK. ✅ **RocksDB on-disk persistence**: set `GAUSSOS_SURREAL_PATH`
+    (or a `rocksdb://`/`file://` endpoint) and the embedded SurrealDB persists to
+    disk instead of memory (`src/database/surreal.rs`). 🧭 Remaining: external
+    SurrealDB/Postgres for HA.
+25. **✅ Distributed mode.** Consistent-hash ring with virtual nodes
+    (`src/database/cluster.rs`): `HashRing` + `ShardRouter` route keys to a
+    primary + replicas, rebalancing only ~`1/N` of keys when a node joins/leaves
+    (proven by tests). 🧭 Remaining: the networking/replication transport that
+    consumes the router.
+26. **✅ Observability.** Prometheus text-exposition endpoint at
+    `/metrics/prometheus` (memories, storage, vector index, facts, CPU, memory),
+    plus an **OpenTelemetry/OTLP trace exporter** (`src/observability.rs`,
+    `otlp_traces_json` + background flusher) that activates on the standard
+    `OTEL_EXPORTER_OTLP_ENDPOINT`, and **Grafana dashboards + Prometheus config**
+    under `deploy/`. 🧭 Remaining: wire lifecycle/scheduler spans end-to-end.
 27. **✅ Deploy.** Multi-stage `Dockerfile` (slim runtime, non-root, healthcheck)
-    + `.dockerignore` + `docker-compose.yml` (API + Deno web UI, embedded
-    SurrealDB so no DB container needed). 🧭 Remaining: Helm chart.
+    + `.dockerignore` + `docker-compose.yml` (API + Deno web UI + opt-in
+    Prometheus/Grafana `observability` profile) + a **Helm chart**
+    (`deploy/helm/gaussos/`: Deployment, Service, PVC for the RocksDB store, HPA,
+    ServiceMonitor).
 28. **✅ SDKs.** Thin **Python** (`sdk/python/gaussos.py`, stdlib-only) and
     **TypeScript** (`sdk/typescript/gaussos.ts`, fetch-based) clients covering
     memories, hybrid/compare retrieval, bi-temporal facts, graph search,
     export/import, and forgetting — so Mem0/Zep/Letta users can migrate easily.
     Python compiles; TS type-checks under Deno.
-29. **🧭 Security & compliance.** Field-level encryption, audit log, key
-    rotation, per-namespace RLS.
+29. **✅ Security & compliance.** `src/security/`: tamper-evident **audit log**
+    (rolling hash chain, `audit.rs`), **per-namespace RLS** (default-deny, role +
+    wildcard subjects, descendant-covering grants, explicit-deny-wins, `rls.rs`),
+    and feature-gated **field-level AES-256-GCM encryption with key rotation**
+    (`encryption.rs`, `--features encryption`: per-message random nonce, decrypt
+    any historical key version, encrypt with the current one).
 
 ---
 

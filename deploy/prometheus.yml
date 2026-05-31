@@ -1,0 +1,22 @@
+# Prometheus scrape configuration for GaussOS.
+#
+# GaussOS exposes metrics in two places:
+#   * the API server's /metrics/prometheus endpoint (port 8080)
+#   * the metrics-feature exporter listener (GAUSSOS_METRICS_PORT, default 9898)
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: gaussos-api
+    metrics_path: /metrics/prometheus
+    static_configs:
+      - targets: ["gaussos:8080"]
+        labels:
+          service: gaussos
+
+  - job_name: gaussos-exporter
+    static_configs:
+      - targets: ["gaussos:9898"]
+        labels:
+          service: gaussos

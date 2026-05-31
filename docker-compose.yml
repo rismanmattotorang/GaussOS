@@ -38,3 +38,30 @@ services:
     depends_on:
       - gaussos
     restart: unless-stopped
+
+  # Observability stack (Prometheus + Grafana). Opt in with:
+  #   docker compose --profile observability up
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["observability"]
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["observability"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+    volumes:
+      - ./deploy/grafana-dashboard.json:/var/lib/grafana/dashboards/gaussos.json:ro
+      - ./deploy/grafana-provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped

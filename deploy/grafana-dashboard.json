@@ -1,0 +1,83 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "title": "GaussOS Overview",
+  "uid": "gaussos-overview",
+  "tags": ["gaussos", "memory"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Memories stored",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" } } },
+      "targets": [
+        { "expr": "gaussos_memories_total", "legendFormat": "memories" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Facts in graph",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [
+        { "expr": "gaussos_facts_total", "legendFormat": "facts" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Vector index size",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "gaussos_vector_index_size", "legendFormat": "vectors" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Storage bytes",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        { "expr": "gaussos_storage_bytes", "legendFormat": "bytes" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Host CPU usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100 } },
+      "targets": [
+        { "expr": "gaussos_cpu_usage_percent", "legendFormat": "cpu %" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Host memory used vs total",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        { "expr": "gaussos_memory_used_bytes", "legendFormat": "used" },
+        { "expr": "gaussos_memory_total_bytes", "legendFormat": "total" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Memory growth rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "rate(gaussos_memories_total[5m])", "legendFormat": "memories/s" },
+        { "expr": "rate(gaussos_facts_total[5m])", "legendFormat": "facts/s" }
+      ]
+    }
+  ]
+}

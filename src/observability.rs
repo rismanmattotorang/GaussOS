@@ -878,6 +878,81 @@ impl DistributedTraceCollector {
     }
 }
 
+impl DistributedTraceCollector {
+    /// Drain completed traces and serialise them into OTLP/JSON
+    /// (`ExportTraceServiceRequest`) ready to POST to an OTLP collector's
+    /// `/v1/traces` endpoint. Returns `None` if there is nothing to export.
+    pub fn drain_otlp(&self, service_name: &str) -> Option<serde_json::Value> {
+        let drained: Vec<CompletedTrace> = {
+            let mut guard = self.completed_traces.write().unwrap();
+            if guard.is_empty() {
+                return None;
+            }
+            std::mem::take(&mut *guard)
+        };
+        let spans: Vec<TraceSpan> = drained.into_iter().flat_map(|t| t.spans).collect();
+        Some(otlp_traces_json(service_name, &spans))
+    }
+}
+
+/// Convert spans into an OTLP/JSON `ExportTraceServiceRequest` body.
+///
+/// Trace/span ids are rendered as hex (OTLP requires 16-byte trace ids and
+/// 8-byte span ids); we derive them deterministically from the UUIDs. Times are
+/// emitted as unix-nanoseconds strings, per the OTLP/JSON spec.
+pub fn otlp_traces_json(service_name: &str, spans: &[TraceSpan]) -> serde_json::Value {
+    fn to_hex(bytes: &[u8]) -> String {
+        let mut s = String::with_capacity(bytes.len() * 2);
+        for b in bytes {
+            s.push_str(&format!("{b:02x}"));
+        }
+        s
+    }
+    let to_nanos = |dt: DateTime<Utc>| (dt.timestamp_nanos_opt().unwrap_or(0)).to_string();
+    let trace_hex = |id: Uuid| to_hex(id.as_bytes()); // 16 bytes -> 32 hex
+    let span_hex = |id: Uuid| to_hex(&id.as_bytes()[..8]); // 8 bytes -> 16 hex
+
+    let otlp_spans: Vec<serde_json::Value> = spans
+        .iter()
+        .map(|s| {
+            let end = s.end_time.unwrap_or(s.start_time);
+            let status_code = match s.status {
+                SpanStatus::Ok => 1,    // STATUS_CODE_OK
+                _ => 2,                 // STATUS_CODE_ERROR
+            };
+            serde_json::json!({
+                "traceId": trace_hex(s.trace_id),
+                "spanId": span_hex(s.span_id),
+                "parentSpanId": s.parent_span_id.map(span_hex).unwrap_or_default(),
+                "name": s.operation_name,
+                "kind": 1, // SPAN_KIND_INTERNAL
+                "startTimeUnixNano": to_nanos(s.start_time),
+                "endTimeUnixNano": to_nanos(end),
+                "attributes": s.tags.iter().map(|(k, v)| serde_json::json!({
+                    "key": k,
+                    "value": { "stringValue": v }
+                })).collect::<Vec<_>>(),
+                "status": { "code": status_code },
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "resourceSpans": [{
+            "resource": {
+                "attributes": [{
+                    "key": "service.name",
+                    "value": { "stringValue": service_name }
+                }]
+            },
+            "scopeSpans": [{
+                "scope": { "name": "gaussos" },
+                "spans": otlp_spans
+            }]
+        }]
+    })
+}
+
 impl Default for DistributedTraceCollector {
     fn default() -> Self {
         Self::new()
@@ -987,7 +1062,7 @@ fn init_prometheus_exporter() -> crate::error::Result<()> {
 fn start_monitoring_tasks(
     config: ObservabilityConfig,
     metrics_collector: Arc<GlobalMetricsCollector>,
-    _trace_collector: Arc<DistributedTraceCollector>,
+    trace_collector: Arc<DistributedTraceCollector>,
 ) {
     // Start metrics collection task
     let metrics_collector_task = metrics_collector.clone();
@@ -1010,7 +1085,58 @@ fn start_monitoring_tasks(
         }
     });
 
+    // Start OTLP trace exporter if an OTLP endpoint is configured. Honours the
+    // standard OTEL_EXPORTER_OTLP_TRACES_ENDPOINT / OTEL_EXPORTER_OTLP_ENDPOINT
+    // environment variables so GaussOS plugs into any OTel collector.
+    if let Some(endpoint) = otlp_traces_endpoint() {
+        let service_name = env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "gaussos".to_string());
+        start_otlp_exporter(trace_collector, endpoint, service_name);
+    }
+
     info!("Background monitoring tasks started");
+}
+
+/// Resolve the OTLP traces endpoint from the standard OTel env vars.
+fn otlp_traces_endpoint() -> Option<String> {
+    if let Ok(e) = env::var("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") {
+        if !e.is_empty() {
+            return Some(e);
+        }
+    }
+    match env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
+        Ok(base) if !base.is_empty() => {
+            Some(format!("{}/v1/traces", base.trim_end_matches('/')))
+        }
+        _ => None,
+    }
+}
+
+/// Periodically drain completed traces and POST them to the OTLP collector as
+/// OTLP/JSON (`Content-Type: application/json`).
+fn start_otlp_exporter(
+    trace_collector: Arc<DistributedTraceCollector>,
+    endpoint: String,
+    service_name: String,
+) {
+    info!("OTLP trace exporter enabled -> {endpoint}");
+    tokio::spawn(async move {
+        let client = reqwest::Client::new();
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            if let Some(body) = trace_collector.drain_otlp(&service_name) {
+                if let Err(e) = client
+                    .post(&endpoint)
+                    .header("content-type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+                {
+                    error!("OTLP trace export failed: {e}");
+                }
+            }
+        }
+    });
 }
 
 /// Get global metrics collector
@@ -1065,4 +1191,45 @@ macro_rules! metric {
     ($name:expr, $value:expr) => {
         $crate::observability::record_metric($name, $value);
     };
+}
+
+#[cfg(test)]
+mod otlp_tests {
+    use super::*;
+
+    #[test]
+    fn otlp_json_has_resource_and_hex_ids() {
+        let trace_id = Uuid::new_v4();
+        let span = TraceSpan {
+            span_id: Uuid::new_v4(),
+            parent_span_id: None,
+            trace_id,
+            operation_name: "memory.search".to_string(),
+            start_time: Utc::now(),
+            end_time: Some(Utc::now()),
+            duration_micros: Some(10),
+            tags: std::collections::HashMap::from([("ns".to_string(), "users/alice".to_string())]),
+            logs: vec![],
+            status: SpanStatus::Ok,
+            child_spans: vec![],
+        };
+        let v = otlp_traces_json("gaussos", &[span]);
+        let rs = &v["resourceSpans"][0];
+        assert_eq!(
+            rs["resource"]["attributes"][0]["value"]["stringValue"],
+            "gaussos"
+        );
+        let otlp_span = &rs["scopeSpans"][0]["spans"][0];
+        // 16-byte trace id -> 32 hex chars; 8-byte span id -> 16 hex chars.
+        assert_eq!(otlp_span["traceId"].as_str().unwrap().len(), 32);
+        assert_eq!(otlp_span["spanId"].as_str().unwrap().len(), 16);
+        assert_eq!(otlp_span["name"], "memory.search");
+        assert_eq!(otlp_span["status"]["code"], 1);
+    }
+
+    #[test]
+    fn drain_otlp_empty_is_none() {
+        let c = DistributedTraceCollector::new();
+        assert!(c.drain_otlp("gaussos").is_none());
+    }
 }

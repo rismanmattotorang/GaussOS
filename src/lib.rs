@@ -82,6 +82,9 @@ pub mod memory;
 // Authentication and security
 pub mod auth;
 
+// Security & compliance (audit, RLS, field-level encryption)
+pub mod security;
+
 // API and networking
 pub mod api;
 

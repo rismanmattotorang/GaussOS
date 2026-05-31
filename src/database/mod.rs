@@ -4,6 +4,7 @@
 
 pub mod backup;
 pub mod cache;
+pub mod cluster;
 pub mod connection_pool;
 pub mod hybrid;
 pub mod memory_store;
@@ -24,6 +25,7 @@ use uuid::Uuid;
 
 pub use backup::BackupManager;
 pub use cache::{CacheConfig, CacheMetrics, CacheStrategy, QueryCache};
+pub use cluster::{ClusterConfig, HashRing, NodeConfig, ShardRouter};
 pub use connection_pool::{ConnectionPool, PoolConfig, PoolMetrics};
 pub use hybrid::{HybridConfig, HybridMemoryVault, HybridMetricsSnapshot};
 pub use memory_store::InMemoryVault;
