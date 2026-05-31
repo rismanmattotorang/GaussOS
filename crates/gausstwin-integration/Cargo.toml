@@ -1,0 +1,74 @@
+[package]
+name = "gausstwin-integration"
+version = { workspace = true }
+edition = { workspace = true }
+description = "Comprehensive integration layer for GaussTwin Enterprise"
+license = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[dependencies]
+# Internal dependencies
+gausstwin-core = { path = "../gausstwin-core" }
+gausstwin-api = { path = "../gausstwin-api" }
+
+# Core dependencies from workspace
+tokio = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tonic = { workspace = true }
+uuid = { workspace = true }
+md5 = "0.7"
+
+# Data formats
+# arrow = { version = "45.0", features = ["prettyprint"] }
+# parquet = { version = "45.0", features = ["arrow"] }
+protobuf = "3.3"
+apache-avro = "0.16"
+
+# IoT & Edge
+rumqttc = "0.22"
+zenoh = "1.4"
+
+# Cloud Services
+aws-config = "1.1"
+aws-sdk-iot = "0.28"
+azure_core = "0.16"
+
+# Message Brokers
+rdkafka = { version = "0.34", features = ["ssl", "sasl"] }
+lapin = "2.3"
+redis = { version = "0.23", features = ["tokio-comp"] }
+
+# Databases
+sqlx = { version = "0.7", features = ["mysql", "postgres", "sqlite", "runtime-tokio"] }
+mongodb = "2.8"
+scylla = "0.12"
+influxdb2 = "0.4"
+
+# API Integration
+reqwest = { version = "0.11", features = ["json"] }
+graphql_client = "0.13"
+
+# Security & Auth
+openssl = { version = "0.10", features = ["vendored"] }
+jsonwebtoken = "9.2"
+oauth2 = "4.4"
+
+# Cloud and blockchain
+# aws-sdk-core = "0.28"
+ethers = { version = "2.0", features = ["ws", "rustls"] }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+mockall = { workspace = true }
+wiremock = "0.5" 

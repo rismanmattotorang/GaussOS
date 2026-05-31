@@ -1,0 +1,53 @@
+[package]
+name = "gausstwin-ai"
+version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+description = "AI and machine learning functionality for GaussTwin framework"
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[dependencies]
+# Internal dependencies
+gausstwin-core = { path = "../gausstwin-core" }
+gausstwin-data = { path = "../gausstwin-data" }
+gausstwin-vec = { path = "../gausstwin-vec" }
+gausstwin-spaces = { path = "../gausstwin-spaces" }
+
+# Core dependencies from workspace
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+ndarray = { workspace = true }
+nalgebra = { workspace = true }
+tokio = { workspace = true }
+log = "0.4"
+
+# ML dependencies
+tch = { version = "0.15", features = ["download-libtorch"] }
+smartcore = "0.3"
+ndarray-linalg = { version = "0.16", features = ["openblas-system"] }
+rayon = "1.10.0"
+num_cpus = "1.17.0"
+env_logger = "0.11.8"
+ctrlc = "3.4.7"
+
+[dev-dependencies]
+criterion = { workspace = true }
+mockall = { workspace = true }
+proptest = { workspace = true }
+tokio-test = "0.4"
+test-case = "3.3"
+
+[[bench]]
+name = "ai_benchmarks"
+harness = false

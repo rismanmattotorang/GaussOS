@@ -1,0 +1,140 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "GaussTwin",
+  "version": "0.1.0",
+  "identifier": "io.gausstwin.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "GaussTwin",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "decorations": true,
+        "transparent": false,
+        "visible": true,
+        "focus": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self' blob: data: https://api.gausstwin.io",
+        "script-src": "'self' 'unsafe-inline'",
+        "style-src": "'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com",
+        "font-src": "'self' data: https://fonts.gstatic.com https://api.fontshare.com",
+        "img-src": "'self' data: blob: https:",
+        "connect-src": "'self' https://api.gausstwin.io wss://api.gausstwin.io http://localhost:*"
+      },
+      "capabilities": []
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false
+    }
+  },
+  "bundle": {
+    "active": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns"
+    ],
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "High-Performance Digital Twin Framework",
+    "longDescription": "GaussTwin is a high-performance framework for building, simulating, and analyzing complex multi-agent digital twin systems.",
+    "copyright": "© 2026 GaussTwin Team",
+    "publisher": "GaussTwin",
+    "fileAssociations": [
+      {
+        "ext": ["gausstwin", "gts"],
+        "mimeType": "application/x-gausstwin",
+        "description": "GaussTwin Simulation File"
+      }
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "entitlements": null,
+      "exceptionDomain": "",
+      "frameworks": [],
+      "signingIdentity": null,
+      "providerShortName": null
+    },
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "wix": null,
+      "nsis": {
+        "installMode": "perMachine",
+        "installerIcon": "icons/icon.ico"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      },
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true,
+      "scope": []
+    },
+    "dialog": {
+      "all": true
+    },
+    "fs": {
+      "scope": {
+        "allow": ["$APPDATA/**", "$DOCUMENT/**", "$DOWNLOAD/**", "$HOME/.gausstwin/**"],
+        "deny": []
+      }
+    },
+    "notification": {
+      "all": true
+    },
+    "updater": {
+      "endpoints": ["https://releases.gausstwin.io/{{target}}/{{arch}}/{{current_version}}"],
+      "pubkey": ""
+    },
+    "window-state": {
+      "all": true
+    },
+    "store": {
+      "all": true
+    },
+    "global-shortcut": {
+      "all": true
+    },
+    "http": {
+      "scope": {
+        "allow": [
+          {
+            "url": "https://api.gausstwin.io/**"
+          },
+          {
+            "url": "http://localhost:*/**"
+          }
+        ]
+      }
+    }
+  }
+}

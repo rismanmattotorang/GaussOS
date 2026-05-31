@@ -1,0 +1,32 @@
+[package]
+name = "gausstwin-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["GaussTwin Team <team@gausstwin.com>"]
+description = "Command-line interface for GaussTwin framework"
+license = "Commercial"
+
+[[bin]]
+name = "gausstwin"
+path = "bin/gausstwin.rs"
+
+[dependencies]
+gausstwin-core = { path = "../crates/gausstwin-core" }
+gausstwin-api = { path = "../crates/gausstwin-api" }
+gausstwin-ai = { path = "../crates/gausstwin-ai" }
+gausstwin-visual = { path = "../crates/gausstwin-visual" }
+gausstwin-data = { path = "../crates/gausstwin-data" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+dialoguer = { workspace = true }
+indicatif = { workspace = true }
+dotenv = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false } 

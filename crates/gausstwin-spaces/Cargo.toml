@@ -1,0 +1,61 @@
+[package]
+name = "gausstwin-spaces"
+version = { workspace = true }
+edition = { workspace = true }
+description = "High-performance spatial data structures and algorithms for GaussTwin"
+license = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[features]
+default = []
+simd = []
+
+[dependencies]
+# Core dependencies from workspace
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Linear algebra & numerical methods
+nalgebra = { workspace = true }
+num = "0.4"
+rand = { workspace = true }
+
+# Concurrency & synchronization
+parking_lot = "0.12"
+dashmap = "5.5"
+crossbeam = "0.8"
+rayon = "1.8"
+
+# Memory management
+mimalloc = { version = "0.1", default-features = false }
+
+# Visualization (optional)
+plotters = { version = "0.3", optional = true }
+kiss3d = { version = "0.35", optional = true }
+
+# Additional dependencies
+crossbeam-queue = "0.3"
+smallvec = "1.13"
+kdtree = "0.6"
+rstar = "0.9"
+
+uuid = { version = "1", features = ["serde", "v4"] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+quickcheck = "1.0"
+rstest = "0.18"
+test-log = "0.2"
+env_logger = "0.10"
+
+[[bench]]
+name = "benchmarks"
+harness = false 

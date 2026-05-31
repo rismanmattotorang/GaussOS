@@ -1,0 +1,83 @@
+[package]
+name = "gausstwin-tui"
+version = "0.1.0"
+edition = "2021"
+authors = ["GaussTwin Team"]
+description = "Terminal User Interface for GaussTwin Digital Twin Framework"
+license = "MIT"
+repository = "https://github.com/gausstwin/gausstwin"
+keywords = ["tui", "terminal", "simulation", "digital-twin"]
+categories = ["command-line-interface", "simulation"]
+
+[[bin]]
+name = "gausstwin-tui"
+path = "src/main.rs"
+
+[dependencies]
+# TUI Framework
+ratatui = { version = "0.28", features = ["all-widgets"] }
+crossterm = { version = "0.28", features = ["event-stream"] }
+
+# Async Runtime
+tokio = { version = "1", features = ["full", "tracing"] }
+tokio-stream = "0.1"
+futures = "0.3"
+
+# CLI & Configuration
+clap = { version = "4", features = ["derive", "env"] }
+toml = "0.8"
+directories = "5"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error Handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tui-logger = { version = "0.12", features = ["tracing-support"] }
+log = "0.4"
+
+# HTTP Client for API
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Time & Date
+chrono = { version = "0.4", features = ["serde"] }
+
+# Utilities
+unicode-width = "0.2"
+textwrap = "0.16"
+humantime = "2.1"
+bytesize = "1.3"
+num-format = "0.4"
+
+# Colors
+palette = "0.7"
+
+# Fuzzy search for command palette
+fuzzy-matcher = "0.3"
+
+# Random number generation
+rand = "0.8"
+
+# GaussTwin Core (optional, for local simulation)
+# gausstwin-core = { path = "../../crates/gausstwin-core", optional = true }
+# gausstwin-api = { path = "../../crates/gausstwin-api", optional = true }
+
+[features]
+default = []
+local = []  # Enable local simulation without API server
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,39 @@
+[package]
+name = "gausstwin-py"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+description = "Python bindings for GaussTwin"
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+gausstwin-core = { path = "../../crates/gausstwin-core" }
+gausstwin-ai = { path = "../../crates/gausstwin-ai" }
+gausstwin-agent = { path = "../../crates/gausstwin-agent" }
+gausstwin-spaces = { path = "../../crates/gausstwin-spaces" }
+
+pyo3 = { workspace = true }
+pyo3-asyncio = { workspace = true }
+numpy = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tch = "^0.15"
+
+[lib]
+name = "gausstwin"
+crate-type = ["cdylib"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]
+
+[build-dependencies]
+pyo3-build-config = "0.20"
+

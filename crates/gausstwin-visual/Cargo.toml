@@ -1,0 +1,64 @@
+[package]
+name = "gausstwin-visual"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+description = "Visualization server for GaussTwin"
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+# Internal dependencies
+gausstwin-core = { path = "../gausstwin-core" }
+gausstwin-ai = { path = "../gausstwin-ai" }
+gausstwin-data = { path = "../gausstwin-data" }
+
+# Web framework and server
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true, features = ["cors", "trace"] }
+hyper = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# Data processing and analytics
+polars = { version = "0.35", features = ["lazy", "temporal", "json", "parquet"] }
+statrs = "0.16"
+ndarray = "0.15"
+ndarray-stats = "0.5"
+
+# Visualization
+plotters = "0.3"
+tabled = "0.14"
+
+# WebSocket support
+tokio-tungstenite = "0.20"
+futures = "0.3"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Metrics and monitoring
+metrics = "0.21"
+tracing = { workspace = true }
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Compression
+flate2 = "1.0"
+
+# Added dependencies
+uuid = "1.8"
+rand = "0.8"
+

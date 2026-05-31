@@ -1,0 +1,51 @@
+[package]
+name = "gausstwin-des"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+description = "Discrete-event simulation engine"
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+# Internal dependencies
+gausstwin-core = { path = "../gausstwin-core" }
+
+# Core dependencies from workspace
+async-trait = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+
+# Additional dependencies
+crossbeam = "0.8"
+dashmap = { version = "5.5", features = ["serde", "rayon"] }
+parking_lot = "0.12"
+priority-queue = "1.3"
+ordered-float = { version = "2.2", features = ["serde"] }
+rayon = "1.8"
+tracing-opentelemetry = "0.22"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+criterion = { workspace = true }
+proptest = { workspace = true }
+mockall = { workspace = true }
+test-log = "0.2"
+
+[[bench]]
+name = "event_processing"
+harness = false
+

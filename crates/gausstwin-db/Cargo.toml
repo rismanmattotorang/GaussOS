@@ -1,0 +1,47 @@
+[package]
+name = "gausstwin-db"
+version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+description = "Enterprise-grade database adapters for SurrealDB and Skytable"
+keywords = { workspace = true }
+categories = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+gausstwin-core = { path = "../gausstwin-core" }
+async-trait = "0.1"
+bytes = "1.4"
+chrono = { version = "0.4", features = ["serde"] }
+opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.14", features = ["http-proto", "metrics", "grpc-tonic"] }
+serde = { workspace = true }
+serde_bytes = "0.11"
+serde_json = "1.0"
+surrealdb = { version = "1.2.0", features = [
+    "kv-rocksdb",
+    "protocol-ws",
+    "protocol-http",
+    "scripting"
+] }
+thiserror = "1.0"
+tokio = { workspace = true }
+tracing = "0.1"
+tracing-opentelemetry = "0.22"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.7", features = ["v4", "serde"] }
+aes-gcm = "0.10"
+rand = "0.8"
+zstd = "0.13"
+metrics = "0.21"
+metrics-exporter-prometheus = "0.12"
+dashmap = "5.5"
+
+[dev-dependencies]
+tokio = { version = "1.36", features = ["full", "test-util"] }
+test-log = { version = "0.2", features = ["trace"] }
+tracing-test = "0.2"
+

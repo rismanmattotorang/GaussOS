@@ -1,0 +1,171 @@
+[workspace]
+resolver = "2"
+members = [
+    "gausstwin-cli",
+    "crates/gausstwin-core",
+    "crates/gausstwin-api",
+    "crates/gausstwin-ai",
+    "crates/gausstwin-visual",
+    "crates/gausstwin-data",
+    "crates/gausstwin-vec",
+    "crates/gausstwin-agent",
+    "crates/gausstwin-cosim",
+    "crates/gausstwin-db",
+    "crates/gausstwin-des",
+    "crates/gausstwin-fsm",
+    "crates/gausstwin-integration",
+    "crates/gausstwin-spaces",
+    "bindings/gausstwin-py",
+    "bindings/gausstwin-ts"
+]
+exclude = [
+    "ui/desktop/src-tauri",
+    "ui/tui"
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/rismandev/gausstwin"
+homepage = "https://github.com/rismandev/gausstwin"
+description = "High-performance agent-based simulation framework"
+authors = ["Risman Adnan <rismandev@gmail.com>"]
+keywords = ["simulation", "agent-based", "digital-twin", "high-performance"]
+categories = ["science", "simulation"]
+rust-version = "1.70"
+
+[workspace.dependencies]
+# Core dependencies
+tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+async-trait = "0.1"
+futures = "0.3"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+petgraph = "0.6"
+clap = { version = "4.4", features = ["derive"] }
+lru = "0.12"
+
+# CLI dependencies
+dialoguer = "0.11"
+indicatif = "0.17"
+dotenv = "0.15"
+toml = "0.8"
+
+# Scientific computing
+nalgebra = { version = "0.32", features = ["serde-serialize"] }
+ndarray = { version = "0.15", features = ["serde"] }
+num-traits = "0.2"
+approx = "0.5"
+
+# API dependencies
+axum = { version = "0.6", features = ["multipart", "ws"] }
+tower = "0.4"
+tower-http = { version = "0.4.4", features = ["cors", "trace"] }
+hyper = "0.14"
+async-graphql = { version = "6.0", features = ["chrono", "uuid", "dataloader"] }
+async-graphql-axum = "6.0"
+tonic = "0.10"
+prost = "0.12"
+tokio-tungstenite = "0.21"
+
+# Database dependencies
+surrealdb = { version = "1.0.0", features = ["kv-mem"] }
+milvus-sdk-rust = "0.1.0"
+skytable = "0.7"
+
+# Monitoring dependencies
+prometheus = "0.13"
+metrics = "0.21"
+metrics-exporter-prometheus = "0.12"
+opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.14", features = ["http-proto", "metrics", "grpc-tonic"] }
+
+# Testing dependencies
+criterion = "0.5"
+mockall = "0.12"
+proptest = "1.4"
+tokio-test = "0.4"
+test-case = "3.3"
+rstest = "0.18"
+
+# Language bindings
+pyo3 = { version = "0.20", features = ["extension-module", "abi3-py38", "multiple-pymethods", "num-complex"] }
+pyo3-asyncio = { version = "0.20", features = ["attributes", "tokio-runtime"] }
+numpy = "0.20"
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "Node",
+    "Window",
+    "Performance",
+    "PerformanceTiming",
+    "WebSocket",
+    "WebGl2RenderingContext",
+    "WebGlBuffer",
+    "WebGlProgram",
+    "WebGlShader",
+    "WebGlUniformLocation",
+    "CanvasRenderingContext2d",
+    "HtmlCanvasElement"
+] }
+deno_core = "0.264"
+gloo-utils = "0.2"
+tsify = "0.4"
+wee_alloc = "0.4"
+
+[profile.dev]
+opt-level = 0
+debug = true
+debug-assertions = true
+overflow-checks = true
+lto = false
+panic = 'unwind'
+incremental = true
+codegen-units = 256
+rpath = false
+
+[profile.release]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = true
+panic = 'abort'
+incremental = false
+codegen-units = 1
+rpath = false
+strip = true
+
+[profile.test]
+opt-level = 0
+debug = 2
+debug-assertions = true
+overflow-checks = true
+lto = false
+incremental = true
+codegen-units = 256
+rpath = false
+
+[profile.bench]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = true
+incremental = false
+codegen-units = 1
+rpath = false
+strip = true

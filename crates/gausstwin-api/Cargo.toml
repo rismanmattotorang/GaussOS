@@ -1,0 +1,85 @@
+[package]
+name = "gausstwin-api"
+version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+description = "API server for GaussTwin framework"
+license = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[dependencies]
+# Internal dependencies
+gausstwin-core = { path = "../gausstwin-core" }
+gausstwin-data = { path = "../gausstwin-data" }
+gausstwin-db = { path = "../gausstwin-db" }
+gausstwin-ai = { path = "../gausstwin-ai" }
+gausstwin-visual = { path = "../gausstwin-visual" }
+
+# Core dependencies from workspace
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+prometheus = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# API frameworks
+axum = { workspace = true }
+tonic = { workspace = true }
+tonic-web = "0.10"
+prost = { workspace = true }
+async-graphql = { workspace = true }
+async-graphql-axum = { workspace = true }
+
+# HTTP/Server
+tower = { workspace = true }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+hyper = { workspace = true }
+headers = "0.3"
+
+# WebSocket
+tokio-tungstenite = { workspace = true }
+futures-util = "0.3"
+
+# Database
+surrealdb = { workspace = true }
+milvus-sdk-rust = { workspace = true }
+skytable = { workspace = true }
+
+# Authentication & Security
+jsonwebtoken = "9.2"
+argon2 = "0.5"
+rand = { workspace = true }
+
+# Additional dependencies
+prost-types = "0.12"
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { workspace = true }
+dialoguer = "0.11"
+indicatif = "0.17"
+config = "0.13"
+dotenv = "0.15"
+flate2 = "1.0"
+regex = "1.0"
+lazy_static = "1.4"
+num_cpus = "1.0"
+
+[build-dependencies]
+tonic-build = "0.10"
+
+[dev-dependencies]
+criterion = { workspace = true }
+mockall = { workspace = true }
+proptest = { workspace = true }
+tokio-test = "0.4"
+

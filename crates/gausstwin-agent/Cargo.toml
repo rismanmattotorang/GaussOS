@@ -1,0 +1,29 @@
+[package]
+name = "gausstwin-agent"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+description = "Intelligent agent framework"
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+gausstwin-core = { path = "../gausstwin-core" }
+gausstwin-vec = { path = "../gausstwin-vec" }
+serde = { workspace = true }
+tokio = { workspace = true }
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+rand = "0.8"
+rayon = "1.8"
+serde_json = "1"
+dashmap = "5"
+ndarray = { version = "0.15", features = ["serde"] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = "0.12"
+

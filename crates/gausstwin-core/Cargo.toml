@@ -1,0 +1,71 @@
+[package]
+name = "gausstwin-core"
+version = { workspace = true }
+edition = { workspace = true }
+authors = { workspace = true }
+description = "Core functionality for GaussTwin framework"
+license = { workspace = true }
+repository = { workspace = true }
+keywords = ["simulation", "abm", "performance", "concurrency", "modeling"]
+categories = ["simulation", "science", "concurrency"]
+
+[features]
+default = ["std", "parallel"]
+std = []
+no_std = []
+parallel = ["dep:rayon", "dep:crossbeam-utils", "dep:crossbeam-channel", "dep:crossbeam-queue"]
+gpu = ["dep:wgpu", "dep:bytemuck"]
+rayon = ["dep:rayon"]
+num_cpus = ["dep:num_cpus"]
+
+[dependencies]
+# Core dependencies from workspace
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+petgraph = { workspace = true }
+tokio = { workspace = true }
+
+# Concurrency and parallelism
+parking_lot = "0.12"
+rayon = { version = "1.8", optional = true }
+crossbeam-utils = { version = "0.8", optional = true }
+crossbeam-channel = { version = "0.5", optional = true }
+crossbeam-queue = { version = "0.3", optional = true }
+
+# Random and numeric
+rand_distr = "0.4"
+fastrand = "2.0"
+num_cpus = { version = "1.0", optional = true }
+
+# Networking
+tokio-tungstenite = { workspace = true }
+
+# GPU acceleration
+wgpu = { version = "0.20", optional = true }
+bytemuck = { version = "1.0", optional = true, features = ["derive"] }
+
+# Math and scientific
+nalgebra = { version = "0.32", features = ["serde-serialize"] }
+
+# Cryptography
+blake3 = "1.5"
+base64 = "0.22"
+
+[dev-dependencies]
+criterion = { workspace = true }
+mockall = { workspace = true }
+proptest = { workspace = true }
+tokio = { workspace = true }
+tokio-test = "0.4"
+
+[[bench]]
+name = "space_benchmarks"
+harness = false

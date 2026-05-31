@@ -1,0 +1,47 @@
+[package]
+name = "gausstwin-data"
+version = "0.1.0"
+edition = "2021"
+description = "High-level data abstraction layer for GaussTwin, coordinating vector and traditional database operations"
+license = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[dependencies]
+# Internal crates
+gausstwin-db = { path = "../gausstwin-db" }
+gausstwin-vec = { path = "../gausstwin-vec" }
+
+# Core dependencies from workspace
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+thiserror = "1.0"
+anyhow = { workspace = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+metrics = "0.21"
+metrics-macros = "0.7"
+metrics-exporter-prometheus = "0.12"
+tracing = "0.1"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+futures = { workspace = true }
+ndarray = { workspace = true }
+
+# Additional dependencies
+dashmap = "5.5"
+parking_lot = "0.12"
+crossbeam = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+validator = { version = "0.16", features = ["derive"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = { workspace = true }
+mockall = { workspace = true }
+rstest = "0.18"
+
+[[bench]]
+name = "benchmarks"
+harness = false 

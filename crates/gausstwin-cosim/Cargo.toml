@@ -1,0 +1,70 @@
+[package]
+name = "gausstwin-cosim"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+description = "Unified co-simulation framework with FMI 2.0 and HLA IEEE-1516e support"
+authors = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+rust-version = { workspace = true }
+
+[dependencies]
+# Core dependencies from workspace
+tokio = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+metrics = { workspace = true }
+tonic = { workspace = true }
+prost = { workspace = true }
+serde_regex = "1.1"
+tracing-serde = "0.1"
+uuid = "1.8"
+
+# Internal crates
+gausstwin-core = { path = "../gausstwin-core" }
+gausstwin-agent = { path = "../gausstwin-agent" }
+gausstwin-spaces = { path = "../gausstwin-spaces" }
+
+# Data structures and algorithms
+dashmap = "5.5"
+petgraph = { workspace = true }
+nalgebra = { workspace = true }
+ndarray = { workspace = true }
+
+# Time management
+chrono = { workspace = true }
+time = "0.3"
+
+# Concurrency and synchronization
+parking_lot = "0.12"
+crossbeam = "0.8"
+rayon = "1.8"
+
+# XML parsing for FMI
+quick-xml = { version = "0.31", features = ["serialize"] }
+roxmltree = "0.19"
+
+# Network communication
+bytes = { version = "1.5", features = ["serde"] }
+
+# Additional dependencies
+regex = "1.10"
+libloading = "0.8"
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+criterion = { workspace = true }
+proptest = { workspace = true }
+mockall = { workspace = true }
+test-log = "0.2"
+
+[[bench]]
+name = "cosim_benchmarks"
+harness = false 
