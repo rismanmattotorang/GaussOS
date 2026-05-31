@@ -3,9 +3,12 @@ use crate::{
     core::{ExtractedMemory, MemCube, MemoryNamespace, MemoryPayload, Message, Priority},
     database::{MemVault, SearchQuery},
     error::Result,
+    memory::ann::{Distance, Hnsw, HnswConfig, Neighbor},
     memory::decay::{DecayConfig, ForgettingCurve, RetentionPlan},
+    memory::graph_retrieval::{GraphHit, GraphRetriever, PprConfig},
     memory::retrieval::{HybridRetriever, HybridSearchConfig, RetrievalCandidate, ScoredMemory},
     memory::schemas::{ExtractionContext, ExtractionMode, SchemaRegistry},
+    memory::scoring::{GaScored, GaWeights, GenerativeAgentScorer},
     memory::temporal::{IngestReport, TemporalFact, TemporalFactStore},
 };
 use crossbeam_queue::SegQueue;
@@ -67,6 +70,9 @@ pub struct MemoryManager {
 
     // Bi-temporal knowledge graph of extracted facts
     temporal: Arc<RwLock<TemporalFactStore>>,
+
+    // HNSW approximate-nearest-neighbour index over memory embeddings
+    vector_index: Arc<RwLock<Hnsw>>,
 
     // Performance tracking
     metrics: Arc<MemoryManagerMetrics>,
@@ -321,6 +327,7 @@ impl MemoryManager {
             forgetting: ForgettingCurve::new(config.decay),
             retrieval_config: config.retrieval,
             temporal: Arc::new(RwLock::new(TemporalFactStore::new())),
+            vector_index: Arc::new(RwLock::new(Hnsw::new(Distance::Cosine, HnswConfig::default()))),
             metrics: Arc::new(MemoryManagerMetrics::new()),
         };
 
@@ -425,7 +432,15 @@ impl MemoryManager {
         let ids: Vec<Uuid> = memories.iter().map(|m| m.id).collect();
         self.vault.batch_store(&memories).await?;
 
-        // Add to caches
+        // Index embeddings and add to caches.
+        {
+            let mut index = self.vector_index.write();
+            for memory in &memories {
+                if let Some(embedding) = memory.payload_embedding() {
+                    index.insert(memory.id, embedding.clone());
+                }
+            }
+        }
         for memory in memories {
             self.l1_cache.insert(memory.id, memory);
         }
@@ -549,12 +564,17 @@ impl MemoryManager {
             self.validate_memory_against_schema(&memory).await?;
         }
 
+        // Index the embedding for approximate-nearest-neighbour search.
+        if let Some(embedding) = memory.payload_embedding() {
+            self.vector_index.write().insert(id, embedding.clone());
+        }
+
         // Store in vault
         self.vault.store(&memory).await?;
-        
+
         // Add to L1 cache
         self.l1_cache.insert(id, memory);
-        
+
         perf::incr("memory.store_total");
 
         Ok(id)
@@ -1077,6 +1097,58 @@ impl MemoryManager {
     /// Number of facts tracked in the temporal store.
     pub fn fact_count(&self) -> usize {
         self.temporal.read().len()
+    }
+
+    /// Approximate-nearest-neighbour search over indexed embeddings using the
+    /// HNSW graph (sublinear, vs the brute-force candidate re-rank in
+    /// [`Self::hybrid_search`]). Returns ids with similarity scores.
+    pub fn ann_search(&self, query: &[f32], k: usize) -> Vec<Neighbor> {
+        self.vector_index.read().search(query, k)
+    }
+
+    /// Resolve an ANN search to full memory cubes (cache-first, vault fallback).
+    pub async fn ann_search_memories(&self, query: &[f32], k: usize) -> Result<Vec<MemCube>> {
+        let neighbors = self.ann_search(query, k);
+        let mut out = Vec::with_capacity(neighbors.len());
+        for n in neighbors {
+            if let Some(m) = self.get_memory(&n.id).await? {
+                out.push(m);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Number of vectors currently held in the ANN index.
+    pub fn vector_index_len(&self) -> usize {
+        self.vector_index.read().len()
+    }
+
+    /// Multi-hop retrieval over the bi-temporal fact graph via Personalized
+    /// PageRank (HippoRAG-style), seeded at the given query entities.
+    pub fn graph_search(&self, seed_entities: &[String]) -> Vec<GraphHit> {
+        let store = self.temporal.read();
+        GraphRetriever::new(PprConfig::default()).search(&store, seed_entities)
+    }
+
+    /// Generative-Agents retrieval: rank a namespace's memories by the
+    /// normalised `recency + importance + relevance` score.
+    pub async fn generative_agent_search(
+        &self,
+        query_embedding: Option<&[f32]>,
+        namespace: Option<&MemoryNamespace>,
+        weights: GaWeights,
+    ) -> Result<Vec<GaScored>> {
+        let mut vault_query = SearchQuery::default();
+        if let Some(ns) = namespace {
+            vault_query.namespace = Some(ns.0.clone());
+            vault_query.include_child_namespaces = true;
+        }
+        vault_query.limit = Some(500);
+        let memories = self.vault.search(&vault_query).await?;
+        let candidates: Vec<RetrievalCandidate> =
+            memories.iter().map(RetrievalCandidate::from_memcube).collect();
+        let scorer = GenerativeAgentScorer::new(weights);
+        Ok(scorer.rank(&candidates, query_embedding, chrono::Utc::now()))
     }
 }
 

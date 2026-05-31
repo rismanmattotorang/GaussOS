@@ -25,10 +25,14 @@ pub fn create_api_router(state: AppState) -> Router<AppState> {
         .route("/memories/:id", delete(handlers::delete_memory))
         // Memory extraction routes
         .route("/memories/extract", post(handlers::extract_memories))
+        // Approximate-nearest-neighbour (HNSW) vector search
+        .route("/memories/ann-search", post(handlers::ann_search))
         // Bi-temporal knowledge-graph routes
         .route("/facts", post(handlers::ingest_fact))
         .route("/facts/:subject", get(handlers::get_facts))
         .route("/facts/:subject/:predicate", get(handlers::get_fact_history))
+        // Multi-hop Personalized-PageRank retrieval over the fact graph
+        .route("/facts/graph-search", post(handlers::graph_search))
         // Graph routes
         .route("/graph/nodes", get(handlers::get_graph_nodes))
         .route("/graph/edges", get(handlers::get_graph_edges))

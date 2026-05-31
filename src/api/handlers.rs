@@ -1563,3 +1563,73 @@ pub async fn get_fact_history(
     }))
     .into_response()
 }
+
+// ---------------------------------------------------------------------------
+// Multi-hop graph retrieval (Personalized PageRank over the fact graph)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize, Validate)]
+pub struct GraphSearchRequest {
+    /// Entities to seed the random walk (e.g. ["user:edwin", "Kalbe"]).
+    #[validate(length(min = 1, max = 32))]
+    pub seeds: Vec<String>,
+}
+
+/// Retrieve multi-hop evidence by running Personalized PageRank over the
+/// bi-temporal fact graph, seeded at the supplied entities.
+pub async fn graph_search(
+    State(state): State<AppState>,
+    Json(req): Json<GraphSearchRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = req.validate() {
+        return GaussOSError::ValidationError(format!("Invalid graph search: {}", e))
+            .into_response();
+    }
+    let hits = state.memory_manager.graph_search(&req.seeds);
+    Json(serde_json::json!({
+        "seeds": req.seeds,
+        "hits": hits.iter().map(|h| serde_json::json!({
+            "subject": h.fact.subject,
+            "predicate": h.fact.predicate,
+            "object": h.fact.object,
+            "score": h.score,
+        })).collect::<Vec<_>>(),
+        "total": hits.len(),
+    }))
+    .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Approximate nearest-neighbour (HNSW) search
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize, Validate)]
+pub struct AnnSearchRequest {
+    /// Dense query embedding.
+    #[validate(length(min = 1))]
+    pub embedding: Vec<f32>,
+    /// Number of neighbours to return.
+    #[validate(range(min = 1, max = 200))]
+    pub k: Option<usize>,
+}
+
+/// Sublinear vector search over the HNSW index of memory embeddings.
+pub async fn ann_search(
+    State(state): State<AppState>,
+    Json(req): Json<AnnSearchRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = req.validate() {
+        return GaussOSError::ValidationError(format!("Invalid ANN search: {}", e)).into_response();
+    }
+    let k = req.k.unwrap_or(10);
+    match state.memory_manager.ann_search_memories(&req.embedding, k).await {
+        Ok(memories) => Json(serde_json::json!({
+            "memories": memories,
+            "total": memories.len(),
+            "index_size": state.memory_manager.vector_index_len(),
+            "mode": "hnsw",
+        }))
+        .into_response(),
+        Err(e) => e.into_response(),
+    }
+}
