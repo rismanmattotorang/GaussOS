@@ -90,9 +90,12 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
     relationship inspector — surfacing GaussOS's unique temporal model visually.
 17. **🧭 Knowledge‑graph viewer.** Interactive entity graph (WebGL/canvas) with
     PPR result highlighting and multi‑hop path tracing.
-18. **🧭 Retrieval Playground.** Side‑by‑side BM25 vs vector vs hybrid (RRF) vs
-    PPR results with the score breakdown GaussOS already returns — a "why this
-    result" white‑box panel no competitor offers.
+18. **✅ Retrieval Playground.** Side‑by‑side **lexical (BM25) vs vector vs hybrid
+    (RRF)** results with the full score breakdown (per‑result bm25/vector/recency
+    scores and ranks) — a "why this result" white‑box panel no competitor offers.
+    Backed by `MemoryManager::compare_retrieval` and `POST /api/v1/retrieval/compare`;
+    served as a Web UI page (`web-ui` nav → *Retrieval Playground*). Verified live.
+    🧭 Remaining: add a PPR column.
 19. **🧭 Live ops dashboard.** Real SSE charts (done) + HNSW/index health,
     forgetting‑pass outcomes, and per‑provider LLM latency/cost.
 20. **🧭 First‑run wizard.** Pick LLM provider, paste key, seed sample memories,

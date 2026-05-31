@@ -270,6 +270,13 @@ function createHtml(): string {
                         </svg>
                         <span>Memories</span>
                     </a>
+                    <a class="nav-item" data-page="playground">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="7"/>
+                            <path d="M21 21l-4.3-4.3"/>
+                        </svg>
+                        <span>Retrieval Playground</span>
+                    </a>
                     <a class="nav-item" data-page="graphs">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="6" cy="6" r="3"/>
@@ -564,7 +571,26 @@ function createHtml(): string {
                     </div>
                 </div>
             </div>
-            
+
+            <!-- Retrieval Playground Page -->
+            <div class="page" id="page-playground" style="display: none;">
+                <div class="page-header">
+                    <h1 class="page-title">Retrieval Playground</h1>
+                    <p class="page-description">See exactly <em>why</em> each memory is retrieved — compare lexical (BM25), vector, and fused hybrid ranking side by side with full score breakdowns. White-box retrieval no other agent-memory system exposes.</p>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+                            <input id="pg-query" class="search-input" style="flex:1; min-width:240px;" placeholder="Type a query, e.g. 'rust memory engine'" />
+                            <input id="pg-namespace" class="search-input" style="max-width:180px;" placeholder="namespace (optional)" />
+                            <button id="pg-run" class="btn btn-primary">Run comparison</button>
+                        </div>
+                        <p id="pg-meta" class="page-description" style="margin-top:0.5rem;"></p>
+                    </div>
+                </div>
+                <div id="pg-results" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1rem;"></div>
+            </div>
+
             <!-- Agents Page -->
             <div class="page" id="page-agents" style="display: none;">
                 <div class="page-header">

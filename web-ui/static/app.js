@@ -237,11 +237,64 @@ class GaussOSApp {
         switch (page) {
             case 'dashboard': this.renderDashboard(); break;
             case 'memories': this.renderMemories(); break;
+            case 'playground': this.renderPlayground(); break;
             case 'agents': this.renderAgents(); break;
             case 'analytics': this.renderAnalytics(); break;
             case 'graphs': this.renderGraphs(); break;
             case 'logs': this.renderLogs(); break;
             case 'settings': this.renderSettings(); break;
+        }
+    }
+
+    // ===== Retrieval Playground (white-box BM25 vs vector vs hybrid) =====
+    renderPlayground() {
+        const runBtn = document.getElementById('pg-run');
+        if (!runBtn || runBtn.dataset.wired) return;
+        runBtn.dataset.wired = '1';
+        const run = () => this.runRetrievalCompare();
+        runBtn.addEventListener('click', run);
+        document.getElementById('pg-query')?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') run();
+        });
+    }
+
+    async runRetrievalCompare() {
+        const text = (document.getElementById('pg-query')?.value || '').trim();
+        const namespace = (document.getElementById('pg-namespace')?.value || '').trim();
+        const results = document.getElementById('pg-results');
+        const meta = document.getElementById('pg-meta');
+        if (!text) { this.showNotification('Enter a query first', 'warning'); return; }
+        if (meta) meta.textContent = 'Running…';
+        try {
+            const body = { text, top_k: 8 };
+            if (namespace) body.namespace = namespace;
+            const data = await this.api('/retrieval/compare', {
+                method: 'POST',
+                body: JSON.stringify(body),
+            });
+            if (meta) meta.textContent = `Candidate pool: ${data.candidate_pool} memories`;
+            const columns = [
+                ['Lexical (BM25)', data.lexical || []],
+                ['Vector', data.vector || []],
+                ['Hybrid (RRF)', data.hybrid || []],
+            ];
+            results.innerHTML = columns.map(([title, list]) => `
+                <div class="card"><div class="card-header"><h3 class="card-title">${title}</h3></div>
+                <div class="card-body">${
+                    list.length ? list.map((r, i) => `
+                        <div style="padding:.5rem 0; border-bottom:1px solid var(--border-subtle,#222);">
+                            <div><strong>#${i + 1}</strong> ${this.escapeHtml(r.content || r.id)}</div>
+                            <div style="font-size:.75rem; color:var(--text-muted,#888); font-family:var(--font-mono,monospace);">
+                                score=${(r.score ?? 0).toFixed(4)}
+                                · bm25=${(r.bm25_score ?? 0).toFixed(2)} (rank ${r.bm25_rank ?? '-'})
+                                · vec=${(r.vector_score ?? 0).toFixed(2)} (rank ${r.vector_rank ?? '-'})
+                                · recency=${(r.recency_score ?? 0).toFixed(2)}
+                            </div>
+                        </div>`).join('')
+                    : '<p style="color:var(--text-muted,#888);">No results</p>'
+                }</div></div>`).join('');
+        } catch (e) {
+            if (meta) meta.textContent = `Error: ${e.message || e}`;
         }
     }
 

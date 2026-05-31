@@ -1642,3 +1642,43 @@ pub async fn ann_search(
         Err(e) => e.into_response(),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Retrieval Playground — white-box BM25 vs vector vs hybrid comparison
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize, Validate)]
+pub struct RetrievalCompareRequest {
+    #[validate(length(min = 1, max = 1000))]
+    pub text: String,
+    pub embedding: Option<Vec<f32>>,
+    pub namespace: Option<String>,
+    #[validate(range(min = 1, max = 50))]
+    pub top_k: Option<usize>,
+}
+
+/// Run a query through lexical-only, vector-only, and hybrid rankers and return
+/// each ranked list with its full score breakdown.
+pub async fn retrieval_compare(
+    State(state): State<AppState>,
+    Json(req): Json<RetrievalCompareRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = req.validate() {
+        return GaussOSError::ValidationError(format!("Invalid compare request: {}", e))
+            .into_response();
+    }
+    let query = crate::memory::manager::HybridQuery {
+        text: req.text,
+        embedding: req.embedding,
+        namespace: req.namespace.map(MemoryNamespace),
+        tags: vec![],
+        payload_type: None,
+        min_quality: None,
+        candidate_pool: 200,
+        top_k: req.top_k.unwrap_or(10),
+    };
+    match state.memory_manager.compare_retrieval(&query).await {
+        Ok(json) => Json(json).into_response(),
+        Err(e) => e.into_response(),
+    }
+}

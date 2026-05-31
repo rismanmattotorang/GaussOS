@@ -980,9 +980,10 @@ impl MemoryManager {
             vault_query.namespace = Some(ns.0.clone());
             vault_query.include_child_namespaces = true;
         }
-        if !query.text.is_empty() {
-            vault_query.text = Some(query.text.clone());
-        }
+        // NOTE: do NOT push the free-text query as a vault substring filter — the
+        // vault does whole-phrase substring matching, which would exclude every
+        // candidate for multi-word queries. Term matching is the in-process
+        // BM25 re-ranker's job; the vault only does cheap structural pre-filtering.
         if !query.tags.is_empty() {
             vault_query.tags = query.tags.clone();
         }
@@ -1036,6 +1037,63 @@ impl MemoryManager {
         self.record_operation_time(start);
         perf::incr("memory.hybrid_search_total");
         Ok(ranked)
+    }
+
+    /// White-box retrieval comparison (powers the Web UI "Retrieval Playground").
+    /// Runs the same candidate pool through three rankers — lexical-only (BM25),
+    /// vector-only, and the fused hybrid — and returns each ranked list with its
+    /// full score breakdown, so users can see *why* each result was chosen.
+    pub async fn compare_retrieval(&self, query: &HybridQuery) -> Result<serde_json::Value> {
+        // Fetch the candidate pool once (mirrors hybrid_search's pre-filter).
+        let mut vault_query = SearchQuery::default();
+        if let Some(ns) = &query.namespace {
+            vault_query.namespace = Some(ns.0.clone());
+            vault_query.include_child_namespaces = true;
+        }
+        // Structural pre-filter only (see note in hybrid_search); BM25/vector
+        // ranking over the pool is done in-process below.
+        vault_query.limit = Some(query.candidate_pool as u64);
+        let candidates = self.vault.search(&vault_query).await?;
+        let by_id: HashMap<Uuid, MemCube> = candidates.iter().map(|m| (m.id, m.clone())).collect();
+        let rc: Vec<RetrievalCandidate> =
+            candidates.iter().map(RetrievalCandidate::from_memcube).collect();
+
+        let run = |bm25_w: f32, vec_w: f32| -> Vec<serde_json::Value> {
+            let mut cfg = self.retrieval_config.clone();
+            cfg.bm25_weight = bm25_w;
+            cfg.vector_weight = vec_w;
+            cfg.enable_mmr = false;
+            cfg.top_k = query.top_k;
+            let retriever = HybridRetriever::new(rc.clone(), cfg);
+            retriever
+                .search(&query.text, query.embedding.as_deref())
+                .into_iter()
+                .map(|s| {
+                    let content = by_id
+                        .get(&s.id)
+                        .map(|m| m.get_content_summary())
+                        .unwrap_or_default();
+                    serde_json::json!({
+                        "id": s.id,
+                        "content": content,
+                        "score": s.score,
+                        "bm25_score": s.bm25_score,
+                        "vector_score": s.vector_score,
+                        "recency_score": s.recency_score,
+                        "bm25_rank": s.bm25_rank,
+                        "vector_rank": s.vector_rank,
+                    })
+                })
+                .collect()
+        };
+
+        Ok(serde_json::json!({
+            "query": query.text,
+            "candidate_pool": candidates.len(),
+            "lexical": run(1.0, 0.0),
+            "vector": run(0.0, 1.0),
+            "hybrid": run(1.0, 1.0),
+        }))
     }
 
     /// Run a forgetting-curve pass over a namespace and act on the result:
