@@ -62,7 +62,7 @@ prost = { version = "0.12", optional = true }
 
 # Database connections
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"], optional = true }
-surrealdb = { version = "1.0", features = ["kv-rocksdb"], optional = true }
+surrealdb = { version = "1.0", features = ["kv-rocksdb", "kv-mem"], optional = true }
 
 # Redis for caching
 redis = { version = "0.24", features = ["tokio-comp"], optional = true }

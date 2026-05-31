@@ -88,6 +88,8 @@ pub struct MonitoringManager {
     metrics_history: Arc<RwLock<Vec<SystemMetrics>>>,
     health_checks: Arc<RwLock<HashMap<String, HealthCheck>>>,
     alerts: Arc<RwLock<Vec<Alert>>>,
+    /// Live OS handle for real CPU/memory sampling (refreshed on each collect).
+    system: Arc<parking_lot::Mutex<sysinfo::System>>,
 }
 
 impl MonitoringManager {
@@ -97,6 +99,7 @@ impl MonitoringManager {
             metrics_history: Arc::new(RwLock::new(Vec::new())),
             health_checks: Arc::new(RwLock::new(HashMap::new())),
             alerts: Arc::new(RwLock::new(Vec::new())),
+            system: Arc::new(parking_lot::Mutex::new(sysinfo::System::new_all())),
         }
     }
 
@@ -133,22 +136,15 @@ impl MonitoringManager {
     pub async fn check_component_health(&self, component: &str) -> HealthCheck {
         let start = Instant::now();
 
-        // Simulate health check based on component type
+        // Health is derived from real signals where available. Components
+        // without an in-process probe report Healthy with an honest message
+        // rather than fabricating random failures.
         let (status, message) = match component {
-            "database" => {
-                // Mock database health check
-                if rand::random::<f64>() > 0.1 {
-                    (
-                        HealthStatus::Healthy,
-                        "Database connection successful".to_string(),
-                    )
-                } else {
-                    (
-                        HealthStatus::Warning,
-                        "Database connection slow".to_string(),
-                    )
-                }
-            }
+            "database" => (
+                HealthStatus::Healthy,
+                "No active probe from monitor; query the vault health endpoint for live status"
+                    .to_string(),
+            ),
             "api" => (
                 HealthStatus::Healthy,
                 "API endpoints responding".to_string(),
@@ -355,51 +351,68 @@ impl MonitoringManager {
         }
     }
 
-    // Mock system metric getters - in production these would interface with the OS
+    // Real system metric getters backed by the `sysinfo` crate. Values reflect
+    // the actual host the process runs on (no simulated/random data).
     fn get_cpu_usage(&self) -> f64 {
-        // Simulate CPU usage between 10-95%
-        10.0 + (rand::random::<f64>() * 85.0)
+        let mut sys = self.system.lock();
+        sys.refresh_cpu();
+        sys.global_cpu_info().cpu_usage() as f64
     }
 
     fn get_memory_usage(&self) -> u64 {
-        // Simulate memory usage
-        (1024_u64.pow(3)) + (rand::random::<u64>() % (4 * 1024_u64.pow(3)))
+        let mut sys = self.system.lock();
+        sys.refresh_memory();
+        sys.used_memory()
     }
 
     fn get_memory_total(&self) -> u64 {
-        8 * 1024_u64.pow(3) // 8GB
+        self.system.lock().total_memory()
     }
 
     fn get_disk_usage(&self) -> u64 {
-        100 * 1024_u64.pow(3) // 100GB
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let total: u64 = disks.iter().map(|d| d.total_space()).sum();
+        let available: u64 = disks.iter().map(|d| d.available_space()).sum();
+        total.saturating_sub(available)
     }
 
     fn get_disk_total(&self) -> u64 {
-        500 * 1024_u64.pow(3) // 500GB
+        sysinfo::Disks::new_with_refreshed_list()
+            .iter()
+            .map(|d| d.total_space())
+            .sum()
     }
 
     fn get_network_in(&self) -> u64 {
-        rand::random::<u64>() % (10 * 1024 * 1024) // Up to 10MB
+        sysinfo::Networks::new_with_refreshed_list()
+            .iter()
+            .map(|(_, n)| n.total_received())
+            .sum()
     }
 
     fn get_network_out(&self) -> u64 {
-        rand::random::<u64>() % (5 * 1024 * 1024) // Up to 5MB
+        sysinfo::Networks::new_with_refreshed_list()
+            .iter()
+            .map(|(_, n)| n.total_transmitted())
+            .sum()
     }
 
+    // Application-level counters are tracked by the API layer (ApiMetrics), not
+    // the OS; report 0 here rather than fabricating values.
     fn get_active_connections(&self) -> u32 {
-        50 + (rand::random::<u32>() % 200)
+        0
     }
 
     fn get_request_count(&self) -> u64 {
-        1000 + (rand::random::<u64>() % 5000)
+        0
     }
 
     fn get_error_count(&self) -> u64 {
-        rand::random::<u64>() % 100
+        0
     }
 
     fn get_response_time_avg(&self) -> f64 {
-        50.0 + (rand::random::<f64>() * 200.0)
+        0.0
     }
 }
 

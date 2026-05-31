@@ -663,9 +663,16 @@ pub fn create_router(state: AppState) -> Router<AppState> {
 
 /// Enhanced server startup function
 pub async fn start_server(config: ApiConfig) -> crate::Result<()> {
-    let database: Arc<dyn crate::database::MemVault> = Arc::new(
-        crate::database::HybridMemoryVault::new(crate::database::HybridConfig::default()).await?,
-    );
+    // Prefer the hybrid backend; fall back to the in-memory vault when external
+    // databases are unreachable so the server always starts.
+    let database: Arc<dyn crate::database::MemVault> =
+        match crate::database::HybridMemoryVault::new(crate::database::HybridConfig::default()).await {
+            Ok(v) => Arc::new(v),
+            Err(e) => {
+                tracing::warn!("Hybrid backend unavailable ({}); using in-memory vault", e);
+                Arc::new(crate::database::InMemoryVault::new())
+            }
+        };
     let app_state = AppState {
         memory_manager: Arc::new(MemoryManager::new_optimized(
             database.clone(),

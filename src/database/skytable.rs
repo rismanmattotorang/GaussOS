@@ -63,12 +63,16 @@ impl MemVault for SkyTableVault {
         Ok(())
     }
 
-    async fn search(&self, _query: &SearchQuery) -> Result<Vec<MemCube>> {
-        Ok(self.map.iter().map(|kv| kv.value().clone()).collect())
+    async fn search(&self, query: &SearchQuery) -> Result<Vec<MemCube>> {
+        let candidates: Vec<MemCube> = self.map.iter().map(|kv| kv.value().clone()).collect();
+        Ok(crate::database::apply_search_query(candidates, query))
     }
 
-    async fn list_by_tags(&self, _tags: &[String]) -> Result<Vec<MemCube>> {
-        Ok(vec![])
+    async fn list_by_tags(&self, tags: &[String]) -> Result<Vec<MemCube>> {
+        let mut query = SearchQuery::default();
+        query.tags = tags.to_vec();
+        query.limit = None;
+        self.search(&query).await
     }
 
     async fn get_stats(&self) -> Result<VaultStats> {

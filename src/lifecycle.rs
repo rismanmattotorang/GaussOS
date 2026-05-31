@@ -575,16 +575,29 @@ impl LifecycleManager {
         }
     }
 
-    /// Collect current system metrics
+    /// Collect current system metrics from the live host via `sysinfo`.
     async fn collect_system_metrics() -> SystemMetrics {
-        // In a real implementation, this would collect actual system metrics
-        // For now, return mock data
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        sys.refresh_cpu();
+
+        let memory_usage_mb = sys.used_memory() as f64 / 1_048_576.0;
+        let cpu_usage_percent = sys.global_cpu_info().cpu_usage() as f64;
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let disk_used: u64 = disks
+            .iter()
+            .map(|d| d.total_space().saturating_sub(d.available_space()))
+            .sum();
+        let networks = sysinfo::Networks::new_with_refreshed_list();
+        let network_rx_bytes: u64 = networks.iter().map(|(_, n)| n.total_received()).sum();
+        let network_tx_bytes: u64 = networks.iter().map(|(_, n)| n.total_transmitted()).sum();
+
         SystemMetrics {
-            memory_usage_mb: 128.0,
-            cpu_usage_percent: 15.0,
-            disk_usage_mb: 1024.0,
-            network_rx_bytes: 0,
-            network_tx_bytes: 0,
+            memory_usage_mb,
+            cpu_usage_percent,
+            disk_usage_mb: disk_used as f64 / 1_048_576.0,
+            network_rx_bytes,
+            network_tx_bytes,
             active_connections: 0,
             requests_per_second: 0.0,
             error_rate: 0.0,
