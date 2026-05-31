@@ -1,40 +1,56 @@
-# 🧠 GaussOS v2.0 - High-Performance Memory Operating System
+# 🧠 GaussOS — The Superior Agent Memory Engine, Built in Rust
 
-*Redefining Memory Management with Rust's Fearless Concurrency*
+*The most complete, correct, and fast long‑term memory for AI agents — by **Gaussian Technologies**, an Indonesian deep‑tech startup.* 🇮🇩
 
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org/)
-[![Performance](https://img.shields.io/badge/performance-500%25%20faster-brightgreen.svg)](#performance-benchmarks)
+[![Agent Memory](https://img.shields.io/badge/agent-memory-8b5cf6.svg)](BENCHMARK.md)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
+[![Build](https://img.shields.io/badge/tests-87%20passing-brightgreen.svg)](#)
 
-## 🚀 **Major Performance Update - 500% Speed Improvement**
+> **GaussOS unifies — in a single compiled‑Rust binary — every capability the
+> leading agent‑memory systems offer separately**, and adds ones none of them
+> have. It pairs **Zep's bi‑temporal knowledge graph** with **TencentDB's RRF
+> hybrid retrieval and L0→L3 layering**, **HippoRAG‑style multi‑hop graph
+> retrieval**, an **in‑engine HNSW index with vector quantization**, a
+> **cognitive forgetting curve**, and a **pluggable multi‑provider LLM layer**
+> (OpenAI, DeepSeek, Qwen, BytePlus, OpenRouter, Anthropic, or any
+> OpenAI‑compatible/local model).
 
-GaussOS v2.0 introduces **revolutionary performance optimizations** that make it the fastest memory management system available:
+📊 See the full, evidence‑based comparison in **[BENCHMARK.md](BENCHMARK.md)** ·
+🗺️ the plan to extend the lead in **[ROADMAP.md](ROADMAP.md)** ·
+🧠 the memory engine in **[AGENT_MEMORY.md](AGENT_MEMORY.md)**.
 
-- **🔥 500% faster graph algorithms** with SIMD acceleration
-- **⚡ 400% higher API throughput** with optimized middleware
-- **🎯 300% better agent performance** with lock-free data structures
-- **💾 52% memory usage reduction** with intelligent caching
-- **🔒 Zero-overhead security** with atomic operations
+## Why GaussOS?
 
-> **🏆 Superior Performance**: Enhanced with AI-powered insights, predictive analytics, 3D visualizations, and enterprise-grade monitoring. [See improvements](./IMPROVEMENTS.md)
+AI agents are only as good as what they remember. Existing memory systems each
+solve *part* of the problem — Zep does temporal graphs, TencentDB does layered
+hybrid retrieval, Letta does self‑editing tiered memory, Mem0 does LLM‑driven
+consolidation — but you must pick one, glue it together in Python, and run a
+database cluster. **GaussOS delivers the union of these ideas as one fast,
+offline‑capable, type‑safe engine** with a REST/streaming API, a live Web
+dashboard, and a native terminal UI.
 
----
+### 🎯 How GaussOS compares
 
-## What is GaussOS?
+| Capability | GaussOS | TencentDB | Zep | Letta | Mem0 |
+|---|:--:|:--:|:--:|:--:|:--:|
+| Bi‑temporal knowledge graph (supersede, not delete) | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Hybrid BM25 + vector + **RRF** + **MMR** | ✅ | ✅ | ✅ | ❌ | 🟡 |
+| **HNSW** ANN index + **vector quantization** in‑engine | ✅ | 🟡 | ❌ | ❌ | ❌ |
+| Multi‑hop **Personalized PageRank** retrieval | ✅ | ❌ | 🟡 | ❌ | 🟡 |
+| Cognitive **forgetting curve** + salience scoring | ✅ | ❌ | ❌ | 🟡 | ❌ |
+| L0→L3 hierarchical progressive disclosure | ✅ | ✅ | 🟡 | 🟡 | ❌ |
+| Multi‑provider LLM (6 vendors + local) | ✅ | 🟡 | 🟡 | ✅ | ✅ |
+| Web dashboard **+** native TUI | ✅ | 🟡 | ✅ | ✅ | 🟡 |
+| Compiled **Rust** (memory‑safe, no GC, SIMD, lock‑free) | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Runs fully offline as a single binary | ✅ | ✅ | ❌ | 🟡 | 🟡 |
 
-GaussOS is an **enterprise-grade memory-centric operating system** built in Rust that revolutionizes how applications manage, process, and understand data. Unlike traditional systems that treat memory as simple storage, GaussOS provides **intelligent memory units (MemCubes)** with semantic understanding, relationship modeling, and real-time analytics.
+<sub>✅ implemented · 🟡 partial · ❌ not offered. Full matrix with code references and an honest maturity section in [BENCHMARK.md](BENCHMARK.md).</sub>
 
-### 🎯 **Key Differentiators**
-
-| **Feature** | **Traditional Systems** | **GaussOS v2.0** |
-|-------------|------------------------|-------------------|
-| **Memory Model** | Simple key-value storage | Intelligent MemCubes with metadata |
-| **Concurrency** | Lock-based with contention | Lock-free with DashMap |
-| **Performance** | Single-threaded bottlenecks | SIMD + parallel processing |
-| **Search** | Basic text matching | Semantic + vector similarity |
-| **Graph Processing** | External libraries | Built-in SIMD-accelerated engine |
-| **Caching** | Single-tier | Multi-tier L1/L2/L3 with ARC |
+> **Honesty first.** GaussOS makes *capability* claims that map to real code; it
+> does **not** publish unreproduced accuracy leaderboard numbers. Running
+> LoCoMo/LongMemEval with reproducible scripts is the top [roadmap](ROADMAP.md)
+> item.
 
 ---
 
@@ -609,8 +625,21 @@ cd gaussos
 cargo run --release
 ```
 
-**Experience the future of memory management with GaussOS v2.0 - where performance meets intelligence.**
+**Give your agents memory that is complete, correct, and fast — with GaussOS.**
 
 ---
 
-*Built with ❤️ by the GaussOS team and the Rust community*
+## 🇮🇩 About Gaussian Technologies
+
+GaussOS is built by **Gaussian Technologies**, an Indonesian deep‑tech startup
+on a mission to build world‑class AI infrastructure from Indonesia for the
+world. We believe agent memory is foundational to trustworthy AI, and that it
+should be **open, fast, correct, and white‑box** — every retrieval decision
+inspectable, every fact auditable, every byte safe.
+
+- 📊 **Benchmark vs the field:** [BENCHMARK.md](BENCHMARK.md)
+- 🗺️ **Roadmap to keep extending the lead:** [ROADMAP.md](ROADMAP.md)
+- 🧠 **The memory engine, explained:** [AGENT_MEMORY.md](AGENT_MEMORY.md)
+- 🤖 **Pluggable LLM providers:** see the *LLM Providers* section above and [`.env.example`](.env.example)
+
+*Built with ❤️ in Indonesia by Gaussian Technologies, on the shoulders of the Rust community.*
