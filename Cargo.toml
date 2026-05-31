@@ -1,0 +1,247 @@
+[package]
+name = "gaussos"
+version = "3.0.0"
+edition = "2021"
+authors = ["GaussOS Development Team"]
+description = "Enterprise-grade AI Memory Management System - Superior Performance Edition"
+license = "MIT"
+repository = "https://github.com/gaussos/gaussos"
+keywords = ["ai", "memory", "database", "graph", "enterprise", "vector", "tui"]
+categories = ["database", "web-programming", "science", "command-line-interface"]
+rust-version = "1.75"
+
+[[bin]]
+name = "gaussos"
+path = "src/bin/main.rs"
+# The CLI binary requires additional dependencies and is therefore only built
+# when the `cli-bin` feature is explicitly enabled.
+required-features = ["cli-bin"]
+
+[[bin]]
+name = "gaussos-tui"
+path = "src/bin/tui.rs"
+# TUI admin application built with ratatui
+required-features = ["tui-bin"]
+
+[lib]
+name = "gaussos"
+path = "src/lib.rs"
+
+[dependencies]
+# Core async runtime
+tokio = { version = "1.0", features = ["full"] }
+tokio-util = "0.7"
+
+# Async trait support
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# UUID generation
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Date and time
+chrono = { version = "0.4", features = ["serde"] }
+time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
+
+# HTTP and web framework
+axum = { version = "0.7", features = ["json", "multipart", "ws", "macros"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["fs", "trace", "cors", "timeout", "limit"] }
+hyper = { version = "1.0", features = ["full"] }
+
+# WebSocket support
+tokio-tungstenite = "0.21"
+
+# gRPC support
+tonic = { version = "0.10", optional = true }
+prost = { version = "0.12", optional = true }
+
+# Database connections
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "json"], optional = true }
+surrealdb = { version = "1.0", features = ["kv-rocksdb"], optional = true }
+
+# Redis for caching
+redis = { version = "0.24", features = ["tokio-comp"], optional = true }
+
+# Concurrent data structures
+dashmap = { version = "5.5", optional = true }
+parking_lot = "0.12"
+crossbeam = { version = "0.8", optional = true }
+crossbeam-deque = "0.8"
+crossbeam-epoch = { version = "0.9", optional = true }
+crossbeam-queue = { version = "0.3", optional = true }
+crossbeam-skiplist = { version = "0.1", optional = true }
+lru = { version = "0.12", optional = true }
+
+# Parallel processing
+rayon = { version = "1.8", optional = true }
+num_cpus = "1.16"
+
+# SIMD operations
+wide = { version = "0.7", optional = true }
+
+# Streaming support
+tokio-stream = "0.1"
+
+# Base64 encoding
+base64 = "0.21"
+
+# Futures utilities
+futures = "0.3"
+futures-util = "0.3"
+
+# Cryptography and security
+argon2 = "0.5"
+jsonwebtoken = { version = "9.3", optional = true }
+rand = "0.8"
+sha2 = "0.10"
+aes-gcm = { version = "0.10", optional = true }
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Configuration and CLI
+clap = { version = "4.0", features = ["derive", "env"], optional = true }
+config = "0.14"
+
+# Performance and monitoring
+metrics = { version = "0.22", optional = true }
+metrics-exporter-prometheus = { version = "0.13", optional = true }
+
+# Compression
+flate2 = "1.0"
+lz4 = "1.24"
+
+# Regex
+regex = "1.10"
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+once_cell = "1.18"
+
+# Validation
+validator = { version = "0.17", features = ["derive"] }
+
+# Hashing
+md5 = "0.7"
+
+# URL encoding for OAuth2
+urlencoding = "2.1"
+
+# System information
+sysinfo = "0.30"
+
+# TUI Framework - ratatui for admin tools
+ratatui = { version = "0.29", optional = true, features = ["all-widgets"] }
+crossterm = { version = "0.28", optional = true }
+tui-textarea = { version = "0.6", optional = true }
+
+# GraphQL support
+async-graphql = { version = "7.0", optional = true, features = ["uuid", "chrono", "tracing"] }
+async-graphql-axum = { version = "7.0", optional = true }
+
+# Server-Sent Events
+axum-extra = { version = "0.9", features = ["typed-header", "query"] }
+
+# Better async streaming
+pin-project-lite = "0.2"
+async-stream = "0.3"
+
+# Enhanced serialization
+bincode = "1.3"
+rmp-serde = "1.1"  # MessagePack
+
+# Rate limiting with sliding window
+governor = "0.6"
+
+# Better time handling
+humantime = "2.1"
+humantime-serde = "1.1"
+
+# Colorful output
+colored = "2.1"
+indicatif = { version = "0.17", optional = true }
+
+# Development dependencies
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+futures = "0.3"
+tempfile = "3.8"
+tokio-test = "0.4"
+
+# Benchmarks
+[[bench]]
+name = "memory_benchmark"
+harness = false
+
+[[bench]]
+name = "simple_benchmarks"
+harness = false
+
+[features]
+default = ["cli", "hybrid", "parallel", "lock-free", "jwt-auth"]
+
+# Core features
+cli = ["dep:clap"]
+web-ui = []
+metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
+
+# API features
+grpc = ["dep:tonic", "dep:prost"]
+redis-cache = ["dep:redis"]
+graphql = ["dep:async-graphql", "dep:async-graphql-axum"]
+
+# TUI Admin Application
+tui = ["dep:ratatui", "dep:crossterm", "dep:tui-textarea", "dep:indicatif"]
+
+# Enterprise features
+enterprise = ["metrics", "cli", "web-ui", "grpc", "redis-cache", "graphql", "tui"]
+
+# Database backends
+postgres = ["dep:sqlx"]
+surrealdb-backend = ["dep:surrealdb"]
+hybrid = ["postgres", "surrealdb-backend", "redis-cache"]
+
+# Performance optimizations
+simd = ["dep:wide"]
+parallel = ["dep:rayon", "dep:crossbeam"]
+lock-free = ["dep:crossbeam", "dep:crossbeam-epoch", "dep:dashmap", "dep:crossbeam-queue", "dep:crossbeam-skiplist", "dep:lru"]
+
+# Security features
+encryption = ["dep:aes-gcm"]
+jwt-auth = ["dep:jsonwebtoken"]
+secure-defaults = ["encryption", "jwt-auth"]
+
+# Testing feature
+testing = []
+
+# Optional feature that enables building the `gaussos` CLI binary
+cli-bin = ["cli"]
+
+# TUI binary feature
+tui-bin = ["tui", "cli"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.bench]
+opt-level = 3
+debug = false

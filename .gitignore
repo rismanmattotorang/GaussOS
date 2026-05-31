@@ -1,0 +1,31 @@
+/target
+**/target
+
+# Build artifacts
+*.rlib
+*.rmeta
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Runtime artifacts
+/logs/*.log
+/test-results/*.log
+/test-results/*.md
+/bench-results/**
+/pids/*
+/web-ui/logs/*
+/web-ui/pids/*
+/web-ui/dist/*
+
+# Environment
+.env*
+!.env.example
+
+# Keep directories
+!**/.gitkeep
