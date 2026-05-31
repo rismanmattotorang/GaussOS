@@ -1156,3 +1156,37 @@ body.light-theme::before { opacity: 0.3; }
 
 /* ===== TEXT UTILITIES ===== */
 .text-danger { color: var(--aurora-rose); }
+
+/* ===== THEME: light / system (Phase 3 design-system pass) ===== */
+/* Light palette applied when documentElement carries data-theme="light". */
+:root[data-theme="light"] {
+    --void: #f7f8fb;
+    --cosmos: #ffffff;
+    --nebula: #f1f3f8;
+    --stellar: #e6e9f2;
+    --surface-1: rgba(255, 255, 255, 0.98);
+    --surface-2: rgba(241, 243, 248, 0.95);
+    --surface-3: rgba(230, 233, 242, 0.9);
+    --surface-glass: rgba(0, 0, 0, 0.03);
+    --surface-hover: rgba(0, 0, 0, 0.05);
+    --text-primary: #0f1320;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-default: rgba(0, 0, 0, 0.14);
+    --border-strong: rgba(0, 0, 0, 0.24);
+    --shadow-sm: 0 1px 2px rgba(15, 19, 32, 0.08);
+    --shadow-md: 0 4px 12px rgba(15, 19, 32, 0.1);
+    --shadow-lg: 0 8px 24px rgba(15, 19, 32, 0.12);
+}
+:root[data-theme="light"] body { background: var(--void); color: var(--text-primary); }
+
+/* Respect users who prefer reduced motion (WCAG): disable animations. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+}

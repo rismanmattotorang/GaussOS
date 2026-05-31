@@ -290,8 +290,17 @@ function createHtml(): string {
                         </svg>
                         <span>Graph Explorer</span>
                     </a>
+                    <a class="nav-item" data-page="kg">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="5" cy="6" r="2"/>
+                            <circle cx="19" cy="6" r="2"/>
+                            <circle cx="12" cy="18" r="2"/>
+                            <path d="M7 7l4 9M17 7l-4 9M6 6h12"/>
+                        </svg>
+                        <span>Knowledge Graph</span>
+                    </a>
                 </div>
-                
+
                 <div class="nav-group">
                     <div class="nav-group-title">Operations</div>
                     <a class="nav-item" data-page="agents">
@@ -609,6 +618,30 @@ function createHtml(): string {
                 <div id="pg-results" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1rem;"></div>
             </div>
 
+            <!-- Knowledge Graph Page -->
+            <div class="page" id="page-kg" style="display: none;">
+                <div class="page-header">
+                    <h1 class="page-title">Knowledge Graph</h1>
+                    <p class="page-description">The bi-temporal entity graph. Drag the time slider to see the graph <em>as it was valid</em> at any point — temporal recall no other agent-memory UI shows. Click a node to trace multi-hop relevance (Personalized PageRank).</p>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+                            <label class="page-description" style="margin:0;">As of:</label>
+                            <input id="kg-asof" type="range" min="0" max="100" value="100" style="flex:1; min-width:200px;" />
+                            <span id="kg-asof-label" class="page-description" style="margin:0; font-family:var(--font-mono,monospace);">now</span>
+                            <button id="kg-refresh" class="btn btn-primary">Refresh</button>
+                        </div>
+                        <p id="kg-meta" class="page-description" style="margin-top:0.5rem;"></p>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <canvas id="kg-canvas" width="900" height="520" style="width:100%; height:auto; background:var(--surface-2,#1a1d2e); border-radius:8px;"></canvas>
+                    </div>
+                </div>
+            </div>
+
             <!-- Agents Page -->
             <div class="page" id="page-agents" style="display: none;">
                 <div class="page-header">
@@ -647,10 +680,24 @@ function createHtml(): string {
                 </div>
                 <div class="card">
                     <div class="card-header">
-                        <h3 class="card-title">Server Configuration</h3>
+                        <h3 class="card-title">LLM Provider</h3>
                     </div>
                     <div class="card-body">
-                        <p class="text-secondary">Configuration options will be displayed here.</p>
+                        <p id="settings-llm" class="text-secondary">Loading…</p>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Memory Maintenance</h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="page-description">Run a sleep-time forgetting pass: cold memories are archived and (optionally) the lowest-retention ones are forgotten — the cognitive housekeeping that keeps memory bounded.</p>
+                        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                            <input id="forget-ns" class="search-input" style="max-width:200px;" placeholder="namespace (e.g. demo)" />
+                            <label class="page-description" style="margin:0;"><input id="forget-delete" type="checkbox" /> delete forgotten</label>
+                            <button id="forget-run" class="btn btn-primary">Run forgetting pass</button>
+                        </div>
+                        <p id="forget-out" class="page-description" style="margin-top:0.5rem; font-family:var(--font-mono,monospace);"></p>
                     </div>
                 </div>
             </div>

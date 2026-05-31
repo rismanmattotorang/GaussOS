@@ -660,6 +660,7 @@ pub fn create_router(state: AppState) -> Router<AppState> {
         .route("/api/v1/llm/status", get(handlers::llm_status))
         // Bi-temporal knowledge graph + multi-hop graph retrieval
         .route("/api/v1/facts", post(handlers::ingest_fact))
+        .route("/api/v1/facts/graph", get(handlers::facts_graph))
         .route("/api/v1/facts/graph-search", post(handlers::graph_search))
         .route("/api/v1/facts/:subject", get(handlers::get_facts))
         .route("/api/v1/facts/:subject/:predicate", get(handlers::get_fact_history))

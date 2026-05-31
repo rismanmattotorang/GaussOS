@@ -21,6 +21,7 @@ class GaussOSApp {
     }
 
     async init() {
+        this.applyTheme();
         this.setupEventListeners();
         this.initWebSocket();
         this.initSSE();
@@ -239,6 +240,7 @@ class GaussOSApp {
             case 'dashboard': this.renderDashboard(); break;
             case 'memories': this.renderMemories(); break;
             case 'playground': this.renderPlayground(); break;
+            case 'kg': this.renderKnowledgeGraph(); break;
             case 'agents': this.renderAgents(); break;
             case 'analytics': this.renderAnalytics(); break;
             case 'graphs': this.renderGraphs(); break;
@@ -384,9 +386,25 @@ class GaussOSApp {
         }
     }
 
+    // Cycle dark → light → system; persist and apply.
     toggleTheme() {
-        document.body.classList.toggle('light-theme');
-        localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
+        const order = ['dark', 'light', 'system'];
+        let cur = 'dark';
+        try { cur = localStorage.getItem('theme') || 'dark'; } catch { /* ignore */ }
+        const next = order[(order.indexOf(cur) + 1) % order.length];
+        try { localStorage.setItem('theme', next); } catch { /* ignore */ }
+        this.applyTheme(next);
+        this.showNotification(`Theme: ${next}`, 'info', 1500);
+    }
+
+    applyTheme(mode) {
+        let m = mode;
+        if (!m) { try { m = localStorage.getItem('theme') || 'dark'; } catch { m = 'dark'; } }
+        let resolved = m;
+        if (m === 'system') {
+            resolved = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', resolved);
     }
 
     // ===== Page Renderers =====
@@ -593,7 +611,16 @@ class GaussOSApp {
         for (const s of samples) {
             try { await this.api('/memories', { method: 'POST', body: JSON.stringify(s) }); ok++; } catch { /* ignore */ }
         }
-        this.showNotification(`Seeded ${ok} sample memories`, 'success');
+        // Seed a few connected facts so the Knowledge Graph has content.
+        const facts = [
+            { subject: 'GaussOS', predicate: 'built_by', object: 'Gaussian Technologies' },
+            { subject: 'Gaussian Technologies', predicate: 'based_in', object: 'Indonesia' },
+            { subject: 'GaussOS', predicate: 'written_in', object: 'Rust' },
+        ];
+        for (const f of facts) {
+            try { await this.api('/facts', { method: 'POST', body: JSON.stringify(f) }); } catch { /* ignore */ }
+        }
+        this.showNotification(`Seeded ${ok} memories + ${facts.length} facts`, 'success');
     }
 
     renderAgents() {
@@ -635,8 +662,162 @@ class GaussOSApp {
         `).join('');
     }
 
-    renderSettings() {
-        // Settings page
+    async renderSettings() {
+        // LLM provider status.
+        const llmEl = document.getElementById('settings-llm');
+        if (llmEl) {
+            try {
+                const s = await this.api('/llm/status');
+                llmEl.innerHTML = `Provider: <strong>${this.escapeHtml(s.provider)}</strong> · model <code>${this.escapeHtml(s.model || '—')}</code> · ${s.configured ? '<span class="badge success">configured</span>' : '<span class="badge warning">no API key</span>'}`;
+            } catch (e) {
+                llmEl.textContent = `Unavailable: ${e.message || e}`;
+            }
+        }
+        // Forgetting pass control.
+        const btn = document.getElementById('forget-run');
+        if (btn && !btn.dataset.wired) {
+            btn.dataset.wired = '1';
+            btn.addEventListener('click', () => this.runForgettingPass());
+        }
+    }
+
+    async runForgettingPass() {
+        const ns = (document.getElementById('forget-ns')?.value || '').trim();
+        const del = document.getElementById('forget-delete')?.checked || false;
+        const out = document.getElementById('forget-out');
+        if (!ns) { this.showNotification('Enter a namespace', 'warning'); return; }
+        if (out) out.textContent = 'Running…';
+        try {
+            const r = await this.api('/admin/forget', {
+                method: 'POST',
+                body: JSON.stringify({ namespace: ns, delete_forgotten: del }),
+            });
+            if (out) out.textContent = `retained=${r.retained} · archived=${r.archived} · forgotten=${r.forgotten}${del ? ' (deleted)' : ''}`;
+            this.showNotification('Forgetting pass complete', 'success');
+        } catch (e) {
+            if (out) out.textContent = `Error: ${e.message || e}`;
+        }
+    }
+
+    // ===== Knowledge Graph viewer (bi-temporal "as-of" + PPR highlight) =====
+    renderKnowledgeGraph() {
+        const refresh = document.getElementById('kg-refresh');
+        const slider = document.getElementById('kg-asof');
+        if (refresh && !refresh.dataset.wired) {
+            refresh.dataset.wired = '1';
+            refresh.addEventListener('click', () => this.loadKnowledgeGraph());
+            slider?.addEventListener('input', () => this.updateAsOfLabel());
+            slider?.addEventListener('change', () => this.loadKnowledgeGraph());
+            const canvas = document.getElementById('kg-canvas');
+            canvas?.addEventListener('click', (e) => this.onKgClick(e));
+        }
+        this.updateAsOfLabel();
+        this.loadKnowledgeGraph();
+    }
+
+    asOfValue() {
+        // Slider 0..100 → a point in the last 30 days; 100 = now (no ?at).
+        const v = parseInt(document.getElementById('kg-asof')?.value ?? '100', 10);
+        if (v >= 100) return null;
+        const spanMs = 30 * 24 * 3600 * 1000;
+        return new Date(Date.now() - spanMs * (1 - v / 100));
+    }
+
+    updateAsOfLabel() {
+        const label = document.getElementById('kg-asof-label');
+        const d = this.asOfValue();
+        if (label) label.textContent = d ? d.toISOString().slice(0, 16).replace('T', ' ') : 'now';
+    }
+
+    async loadKnowledgeGraph() {
+        const meta = document.getElementById('kg-meta');
+        const d = this.asOfValue();
+        const ep = d ? `/facts/graph?at=${encodeURIComponent(d.toISOString())}` : '/facts/graph';
+        try {
+            const g = await this.api(ep);
+            this.kgData = g;
+            this.kgHighlight = null;
+            if (meta) meta.textContent = `${g.nodes.length} entities · ${g.edges.length} relations${d ? ` · as of ${d.toISOString().slice(0,16).replace('T',' ')}` : ' · current'}`;
+            this.drawKnowledgeGraph();
+        } catch (e) {
+            if (meta) meta.textContent = `Error: ${e.message || e}`;
+        }
+    }
+
+    kgLayout() {
+        // Deterministic circular layout; store positions keyed by node id.
+        const g = this.kgData || { nodes: [], edges: [] };
+        const canvas = document.getElementById('kg-canvas');
+        const w = canvas.width, h = canvas.height;
+        const cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 50;
+        const pos = {};
+        g.nodes.forEach((n, i) => {
+            const a = (i / Math.max(1, g.nodes.length)) * Math.PI * 2;
+            pos[n.id] = { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a), deg: n.degree };
+        });
+        this.kgPos = pos;
+        return pos;
+    }
+
+    drawKnowledgeGraph() {
+        const canvas = document.getElementById('kg-canvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const g = this.kgData || { nodes: [], edges: [] };
+        const pos = this.kgLayout();
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (g.nodes.length === 0) {
+            ctx.fillStyle = '#888';
+            ctx.font = '16px sans-serif';
+            ctx.fillText('No facts yet — ingest facts (POST /facts) or use the first-run wizard to seed.', 30, 40);
+            return;
+        }
+        const hi = this.kgHighlight; // Set of highlighted node ids
+        // Edges
+        ctx.strokeStyle = 'rgba(148,163,184,0.35)';
+        ctx.lineWidth = 1;
+        g.edges.forEach(e => {
+            const a = pos[e.source], b = pos[e.target];
+            if (!a || !b) return;
+            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        });
+        // Nodes
+        g.nodes.forEach(n => {
+            const p = pos[n.id];
+            const radius = 6 + Math.min(14, n.degree * 2);
+            const on = !hi || hi.has(n.id);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+            ctx.fillStyle = hi && hi.has(n.id) ? '#00d9ff' : (on ? '#8b5cf6' : 'rgba(139,92,246,0.25)');
+            ctx.fill();
+            ctx.fillStyle = on ? '#f8fafc' : 'rgba(248,250,252,0.4)';
+            ctx.font = '12px sans-serif';
+            ctx.fillText(n.id.length > 18 ? n.id.slice(0, 17) + '…' : n.id, p.x + radius + 3, p.y + 4);
+        });
+    }
+
+    async onKgClick(e) {
+        const canvas = document.getElementById('kg-canvas');
+        const rect = canvas.getBoundingClientRect();
+        const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * sx, y = (e.clientY - rect.top) * sy;
+        const pos = this.kgPos || {};
+        let hit = null;
+        for (const [id, p] of Object.entries(pos)) {
+            const rr = 6 + Math.min(14, (p.deg || 1) * 2) + 4;
+            if ((x - p.x) ** 2 + (y - p.y) ** 2 <= rr * rr) { hit = id; break; }
+        }
+        if (!hit) { this.kgHighlight = null; this.drawKnowledgeGraph(); return; }
+        try {
+            const r = await this.api('/facts/graph-search', { method: 'POST', body: JSON.stringify({ seeds: [hit] }) });
+            const set = new Set([hit]);
+            (r.hits || []).forEach(h => { set.add(h.subject); set.add(h.object); });
+            this.kgHighlight = set;
+            this.drawKnowledgeGraph();
+            this.showNotification(`PPR from "${hit}": ${r.total} related facts`, 'info');
+        } catch (err) {
+            this.showNotification(`Graph search failed: ${err.message || err}`, 'error');
+        }
     }
 
     // ===== Chart Initialization =====

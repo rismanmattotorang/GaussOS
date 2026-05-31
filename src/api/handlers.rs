@@ -1686,6 +1686,19 @@ pub async fn retrieval_compare(
     }
 }
 
+/// Export the bi-temporal entity graph as nodes + edges for the Knowledge Graph
+/// viewer. Optional `?at=<rfc3339>` returns the graph as valid at that instant.
+pub async fn facts_graph(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let at = params
+        .get("at")
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|d| d.with_timezone(&Utc));
+    Json(state.memory_manager.fact_graph(at)).into_response()
+}
+
 /// Report the active LLM provider and whether it is configured (powers the
 /// first-run wizard and settings panel). Never returns the API key.
 pub async fn llm_status(State(_state): State<AppState>) -> impl IntoResponse {

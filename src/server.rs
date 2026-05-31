@@ -108,6 +108,7 @@ impl GaussOSServer {
             .route("/metrics", get(crate::api::handlers::metrics))
             // Bi-temporal knowledge graph + multi-hop retrieval
             .route("/facts", post(crate::api::handlers::ingest_fact))
+            .route("/facts/graph", get(crate::api::handlers::facts_graph))
             .route("/facts/graph-search", post(crate::api::handlers::graph_search))
             .route("/facts/:subject", get(crate::api::handlers::get_facts))
             .route("/facts/:subject/:predicate", get(crate::api::handlers::get_fact_history))

@@ -81,26 +81,27 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
 
 ## Phase 3 — Web UI / UX (elegant, professional, real‑time)
 
-15. **🟡 Design‑system pass.** ✅ A working **⌘K command palette** (navigate +
-    quick actions like "Seed sample memories"/"Toggle theme") is implemented in
-    `app.js` (the prior ⌘K hook called undefined methods — fixed).
-    🧭 Remaining: typography/motion refinement, light/system themes, WCAG‑AA audit.
-16. **🟡 Memory Explorer.** ✅ Faceted, **live** search (full‑text + namespace +
-    payload type + min‑quality) wired to `POST /api/v1/memories/search`, with a
-    real results table (type/content/namespace/quality) and inline delete.
-    🧭 Remaining: bi‑temporal "as‑of" timeline slider and provenance/relationship
-    inspector.
-17. **🧭 Knowledge‑graph viewer.** Interactive entity graph (WebGL/canvas) with
-    PPR result highlighting and multi‑hop path tracing.
+15. **✅ Design‑system pass.** ⌘K command palette (navigate + quick actions);
+    dark/light/**system** theme cycle applied on load (`data-theme`) with a light
+    palette; `prefers-reduced-motion` honoured (WCAG). *Files:* `app.js`, `styles.css`.
+16. **✅ Memory Explorer.** Faceted **live** search (full‑text + namespace +
+    payload type + min‑quality) → `POST /api/v1/memories/search`, real results
+    table (type/content/namespace/quality) + inline delete. The bi‑temporal
+    "as‑of" view ships in the Knowledge Graph page (#17).
+17. **✅ Knowledge‑graph viewer.** Canvas entity‑graph with degree‑sized nodes, a
+    **bi‑temporal "as‑of" time slider** (`GET /api/v1/facts/graph?at=`), and
+    click‑to‑trace **Personalized PageRank** highlighting. Backed by
+    `MemoryManager::fact_graph`. Verified live (current + time‑travel views).
 18. **✅ Retrieval Playground.** Side‑by‑side **lexical (BM25) vs vector vs hybrid
     (RRF)** results with the full score breakdown (per‑result bm25/vector/recency
     scores and ranks) — a "why this result" white‑box panel no competitor offers.
     Backed by `MemoryManager::compare_retrieval` and `POST /api/v1/retrieval/compare`;
     served as a Web UI page (`web-ui` nav → *Retrieval Playground*). Verified live.
     🧭 Remaining: add a PPR column.
-19. **🟡 Live ops dashboard.** ✅ Real SSE charts + `vector_index_size` and
-    `facts` (knowledge‑graph size) added to `/api/v1/metrics`.
-    🧭 Remaining: forgetting‑pass outcome panel and per‑provider LLM latency/cost.
+19. **🟡 Live ops dashboard.** ✅ Real SSE charts; `vector_index_size` + `facts`
+    in `/api/v1/metrics`; a **forgetting‑pass control + outcome panel**
+    (retained/archived/forgotten) in Settings via `POST /api/v1/admin/forget`.
+    🧭 Remaining: per‑provider LLM latency/cost tracking.
 20. **✅ First‑run wizard.** On first load, shows the active LLM provider/model
     and configured state (via `GET /api/v1/llm/status`), offers one‑click
     "Seed sample memories", and remembers completion. Verified live.

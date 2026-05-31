@@ -1222,6 +1222,33 @@ impl MemoryManager {
         Ok(())
     }
 
+    /// Export the entity graph as nodes + edges for visualisation. When `at` is
+    /// given, returns the graph **as it was valid at that instant** (bi-temporal
+    /// "as-of" view); otherwise the current graph. Nodes carry their degree.
+    pub fn fact_graph(&self, at: Option<chrono::DateTime<chrono::Utc>>) -> serde_json::Value {
+        let store = self.temporal.read();
+        let facts = match at {
+            Some(t) => store.facts_valid_at(t),
+            None => store.current_facts(),
+        };
+        let mut degree: HashMap<String, usize> = HashMap::new();
+        let mut edges = Vec::with_capacity(facts.len());
+        for f in &facts {
+            *degree.entry(f.subject.clone()).or_insert(0) += 1;
+            *degree.entry(f.object.clone()).or_insert(0) += 1;
+            edges.push(serde_json::json!({
+                "source": f.subject,
+                "target": f.object,
+                "predicate": f.predicate,
+            }));
+        }
+        let nodes: Vec<serde_json::Value> = degree
+            .into_iter()
+            .map(|(label, deg)| serde_json::json!({ "id": label, "degree": deg }))
+            .collect();
+        serde_json::json!({ "nodes": nodes, "edges": edges, "as_of": at })
+    }
+
     /// Multi-hop retrieval over the bi-temporal fact graph via Personalized
     /// PageRank (HippoRAG-style), seeded at the given query entities.
     pub fn graph_search(&self, seed_entities: &[String]) -> Vec<GraphHit> {
