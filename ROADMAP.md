@@ -108,14 +108,23 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
 
 ## Phase 4 — TUI (a real operator cockpit)
 
-21. **🧭 Flesh out the stub views** (`dashboard`, `memory_browser`,
-    `query_repl`, `agent_manager`, `log_viewer`, `config_editor`) on the solid
-    `tui/app.rs` shell — currently 5‑line placeholders.
-    *Files:* `src/tui/*.rs`.
-22. **🧭 Memory browser + query REPL** with vim‑style keys, fuzzy find, and the
-    same score‑breakdown panel as the Web UI.
-23. **🧭 Unicode charts** for live metrics, an alerts pane, and a forgetting/
-    consolidation control panel — all driven by the real API.
+21. **✅ Real, data-driven views.** Replaced the placeholder Query/Config/Graphs
+    screens (which showed fabricated data) with live, server-backed views in
+    `tui/app.rs`. *Files:* `src/tui/app.rs`.
+22. **✅ Query REPL.** An interactive search REPL: type on the Query tab (keys go
+    to the input, Tab leaves), press Enter to run a live `/api/v1/memories/search`,
+    and see real results (type · quality · content). The Help screen documents it.
+23. **🟡 Real ops views.** ✅ Knowledge Graph tab shows live entity/relation
+    counts + a degree bar-chart of top entities (`GET /api/v1/facts/graph`);
+    ✅ Config tab shows the live server URL, connection, LLM provider/model/status
+    (`/api/v1/llm/status`) and build features — all honest, no mock data.
+    🧭 Remaining: vim‑style fuzzy find, a dedicated alerts pane, and an in‑TUI
+    forgetting‑pass control.
+
+> Implemented intuitively: the Query tab is a focused input with examples and a
+> visible cursor; Help (tab 8 / `?`) lists every key including the REPL; the
+> footer shows ⌘K and quit. The `tui/*.rs` stub modules remain as future homes
+> for extracting these views from `app.rs`.
 
 ## Phase 5 — Platform & operations
 

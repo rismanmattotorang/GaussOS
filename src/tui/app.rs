@@ -89,8 +89,104 @@ impl ServerClient {
             .send()
             .await
             .map_err(|e| GaussOSError::NetworkError(e.to_string()))?;
-        
+
         resp.json().await.map_err(|e| GaussOSError::SerializationError(e.to_string()))
+    }
+
+    /// Run a full-text memory search (powers the Query REPL).
+    pub async fn search(&self, text: &str) -> Result<Vec<QueryRow>> {
+        let body = serde_json::json!({ "text": text, "limit": 50 });
+        let resp = self.client
+            .post(format!("{}/api/v1/memories/search", self.base_url))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| GaussOSError::NetworkError(e.to_string()))?;
+        let data: serde_json::Value = resp.json().await
+            .map_err(|e| GaussOSError::SerializationError(e.to_string()))?;
+        let arr = data.get("memories").and_then(|m| m.as_array()).cloned().unwrap_or_default();
+        Ok(arr.iter().map(QueryRow::from_value).collect())
+    }
+
+    /// Fetch the knowledge-graph summary: (node_count, edge_count, top entities by degree).
+    pub async fn get_fact_graph(&self) -> Result<(usize, usize, Vec<(String, usize)>)> {
+        let resp = self.client
+            .get(format!("{}/api/v1/facts/graph", self.base_url))
+            .send()
+            .await
+            .map_err(|e| GaussOSError::NetworkError(e.to_string()))?;
+        let data: serde_json::Value = resp.json().await
+            .map_err(|e| GaussOSError::SerializationError(e.to_string()))?;
+        let nodes = data.get("nodes").and_then(|n| n.as_array()).cloned().unwrap_or_default();
+        let edges = data.get("edges").and_then(|e| e.as_array()).map(|a| a.len()).unwrap_or(0);
+        let mut top: Vec<(String, usize)> = nodes.iter().filter_map(|n| {
+            Some((
+                n.get("id")?.as_str()?.to_string(),
+                n.get("degree").and_then(|d| d.as_u64()).unwrap_or(0) as usize,
+            ))
+        }).collect();
+        top.sort_by(|a, b| b.1.cmp(&a.1));
+        top.truncate(12);
+        Ok((nodes.len(), edges, top))
+    }
+
+    /// Fetch the active LLM provider status: (provider, model, configured).
+    pub async fn get_llm_status(&self) -> Result<(String, String, bool)> {
+        let resp = self.client
+            .get(format!("{}/api/v1/llm/status", self.base_url))
+            .send()
+            .await
+            .map_err(|e| GaussOSError::NetworkError(e.to_string()))?;
+        let d: serde_json::Value = resp.json().await
+            .map_err(|e| GaussOSError::SerializationError(e.to_string()))?;
+        Ok((
+            d.get("provider").and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
+            d.get("model").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            d.get("configured").and_then(|v| v.as_bool()).unwrap_or(false),
+        ))
+    }
+}
+
+/// A row of query results shown in the Query REPL.
+#[derive(Debug, Clone, Default)]
+pub struct QueryRow {
+    pub content: String,
+    pub mem_type: String,
+    pub namespace: String,
+    pub quality: f64,
+}
+
+impl QueryRow {
+    fn from_value(m: &serde_json::Value) -> Self {
+        // Extract a human-readable content preview + type from the MemCube payload.
+        let (mem_type, content) = match m.get("payload") {
+            Some(serde_json::Value::Object(map)) => {
+                let key = map.keys().next().cloned().unwrap_or_default();
+                let content = match map.get(&key) {
+                    Some(serde_json::Value::String(s)) => s.clone(),
+                    Some(serde_json::Value::Object(inner)) => inner
+                        .get("content")
+                        .or_else(|| inner.get("thread_title"))
+                        .or_else(|| inner.get("prompt_name"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    _ => String::new(),
+                };
+                (key.to_lowercase(), content)
+            }
+            _ => ("unknown".to_string(), String::new()),
+        };
+        Self {
+            content,
+            mem_type,
+            namespace: m.get("namespace").and_then(|n| n.as_str()).unwrap_or("default").to_string(),
+            quality: m
+                .get("metadata")
+                .and_then(|md| md.get("quality_score"))
+                .and_then(|q| q.as_f64())
+                .unwrap_or(0.0),
+        }
     }
 }
 
@@ -224,9 +320,28 @@ pub struct App {
     
     /// Error message to display
     pub error_message: Option<(String, Instant)>,
-    
+
     /// Data loading state
     pub loading: bool,
+
+    /// Query REPL input buffer
+    pub query_input: String,
+    /// Query REPL results
+    pub query_results: Vec<QueryRow>,
+    /// A query is pending execution (processed by the async loop)
+    pub query_pending: bool,
+    /// Whether a query has been run this session
+    pub query_ran: bool,
+
+    /// Knowledge-graph summary (nodes, edges, top entities)
+    pub graph_nodes: usize,
+    pub graph_edges: usize,
+    pub graph_top: Vec<(String, usize)>,
+
+    /// Active LLM provider status (provider, model, configured)
+    pub llm_provider: String,
+    pub llm_model: String,
+    pub llm_configured: bool,
 }
 
 /// Memory item representation
@@ -304,8 +419,18 @@ impl App {
             server_client,
             error_message: None,
             loading: false,
+            query_input: String::new(),
+            query_results: Vec::new(),
+            query_pending: false,
+            query_ran: false,
+            graph_nodes: 0,
+            graph_edges: 0,
+            graph_top: Vec::new(),
+            llm_provider: String::new(),
+            llm_model: String::new(),
+            llm_configured: false,
         };
-        
+
         // Load initial data if connected
         if connected {
             app.refresh_data().await;
@@ -383,9 +508,43 @@ impl App {
             }
             Err(_) => {} // Silently ignore metrics errors
         }
-        
+
+        // Fetch knowledge-graph summary (for the Graphs tab).
+        if let Ok((nodes, edges, top)) = self.server_client.get_fact_graph().await {
+            self.graph_nodes = nodes;
+            self.graph_edges = edges;
+            self.graph_top = top;
+        }
+
+        // Fetch active LLM provider (for the Config tab).
+        if let Ok((provider, model, configured)) = self.server_client.get_llm_status().await {
+            self.llm_provider = provider;
+            self.llm_model = model;
+            self.llm_configured = configured;
+        }
+
         self.loading = false;
         self.add_log("INFO", "Data refreshed from server");
+    }
+
+    /// Execute the pending query against the server and store results.
+    pub async fn run_query(&mut self) {
+        let q = self.query_input.trim().to_string();
+        if q.is_empty() {
+            return;
+        }
+        self.query_ran = true;
+        match self.server_client.search(&q).await {
+            Ok(rows) => {
+                let n = rows.len();
+                self.query_results = rows;
+                self.status_message = Some((format!("{} result(s)", n), Instant::now()));
+            }
+            Err(e) => {
+                self.query_results.clear();
+                self.show_error(&format!("Query failed: {}", e));
+            }
+        }
     }
     
     /// Add a log entry
@@ -444,6 +603,30 @@ impl App {
                 _ => {}
             }
             return;
+        }
+
+        // On the Query tab, printable keys edit the query (REPL input mode).
+        // Tab/BackTab/Esc and Ctrl-chords still fall through to global handling
+        // so the user can navigate away or quit.
+        if self.current_tab == AppTab::Query && !key.modifiers.contains(KeyModifiers::CONTROL) {
+            match key.code {
+                KeyCode::Char(c) => {
+                    self.query_input.push(c);
+                    return;
+                }
+                KeyCode::Backspace => {
+                    self.query_input.pop();
+                    return;
+                }
+                KeyCode::Enter => {
+                    if !self.query_input.trim().is_empty() {
+                        self.query_pending = true;
+                    }
+                    return;
+                }
+                KeyCode::Tab | KeyCode::BackTab | KeyCode::Esc => { /* fall through */ }
+                _ => return,
+            }
         }
 
         // Global shortcuts
@@ -593,6 +776,12 @@ pub async fn run_app(mut terminal: DefaultTerminal, mut app: App) -> Result<()> 
             last_tick = Instant::now();
         }
         
+        // Execute a pending query from the REPL.
+        if app.query_pending {
+            app.query_pending = false;
+            app.run_query().await;
+        }
+
         // Handle async refresh if loading flag is set
         if app.loading && app.connected {
             app.refresh_data().await;
@@ -984,34 +1173,60 @@ fn render_agents(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     frame.render_stateful_widget(list, area, &mut app.list_state);
 }
 
-fn render_graphs(frame: &mut Frame<'_>, area: Rect, _app: &App) {
-    let text = Paragraph::new(Text::from(vec![
+fn render_graphs(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let mut lines = vec![
         Line::from(""),
-        Line::from(Span::styled("Graph Visualization", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(vec![
+            Span::styled("Knowledge graph  ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("{} entities", app.graph_nodes), Style::default().fg(Color::Green)),
+            Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("{} relations", app.graph_edges), Style::default().fg(Color::Yellow)),
+        ]),
         Line::from(""),
-        Line::from("                    ┌───────────┐"),
-        Line::from("                    │  Memory   │"),
-        Line::from("                    │   Node    │"),
-        Line::from("                    └─────┬─────┘"),
-        Line::from("              ┌───────────┴───────────┐"),
-        Line::from("              │                       │"),
-        Line::from("        ┌─────┴─────┐           ┌─────┴─────┐"),
-        Line::from("        │  Semantic │           │ Episodic  │"),
-        Line::from("        │   Link    │           │   Link    │"),
-        Line::from("        └───────────┘           └───────────┘"),
-        Line::from(""),
-        Line::from(Span::styled("Press 'r' to refresh graph | 'e' to expand | 'c' to collapse", Style::default().fg(Color::DarkGray))),
-    ]))
-    .block(
+    ];
+    if app.graph_top.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No facts yet. Ingest facts via POST /api/v1/facts or the Web UI to populate the graph.",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled("Most-connected entities:", Style::default().fg(Color::DarkGray))));
+        lines.push(Line::from(""));
+        let max = app.graph_top.iter().map(|(_, d)| *d).max().unwrap_or(1).max(1);
+        for (name, deg) in &app.graph_top {
+            let bar_len = (*deg * 24 / max).max(1);
+            let bar: String = "█".repeat(bar_len);
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {:<22} ", truncate(name, 22)), Style::default().fg(Color::White)),
+                Span::styled(bar, Style::default().fg(Color::Cyan)),
+                Span::styled(format!(" {}", deg), Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Tip: the Web UI Knowledge Graph page draws this with a bi-temporal 'as-of' slider and PPR tracing.",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let text = Paragraph::new(Text::from(lines)).block(
         Block::default()
-            .title(" 󰈈 Graph Viewer ")
+            .title(" 󰈈 Knowledge Graph ")
             .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray))
-    )
-    .centered();
-
+            .padding(Padding::horizontal(1)),
+    );
     frame.render_widget(text, area);
+}
+
+/// Truncate a string to `n` chars with an ellipsis.
+fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(n.saturating_sub(1)).collect::<String>())
+    }
 }
 
 fn render_logs(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
@@ -1053,92 +1268,101 @@ fn render_logs(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     frame.render_stateful_widget(list, area, &mut app.list_state);
 }
 
-fn render_config(frame: &mut Frame<'_>, area: Rect, _app: &App) {
+fn render_config(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let kv = |k: &str, v: String, c: Color| {
+        Line::from(vec![
+            Span::styled(format!("  {:<22}", k), Style::default().fg(Color::DarkGray)),
+            Span::styled(v, Style::default().fg(c)),
+        ])
+    };
+    let conn = if app.connected { ("connected", Color::Green) } else { ("offline", Color::Red) };
+    let provider = if app.llm_provider.is_empty() { "—".to_string() } else { app.llm_provider.clone() };
+    let model = if app.llm_model.is_empty() { "—".to_string() } else { app.llm_model.clone() };
+    let llm_state = if app.llm_configured { ("configured", Color::Green) } else { ("no API key", Color::Yellow) };
+    // Compile-time feature flags (honest — reflects how this binary was built).
+    let simd = if cfg!(feature = "simd") { "enabled" } else { "disabled (build with --features simd)" };
+
     let text = Paragraph::new(Text::from(vec![
         Line::from(""),
-        Line::from(Span::styled("Server Configuration", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(Span::styled("Live server configuration", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
         Line::from(""),
-        Line::from(vec![
-            Span::styled("  server.host:          ", Style::default().fg(Color::DarkGray)),
-            Span::styled("0.0.0.0", Style::default().fg(Color::White)),
-        ]),
-        Line::from(vec![
-            Span::styled("  server.port:          ", Style::default().fg(Color::DarkGray)),
-            Span::styled("8080", Style::default().fg(Color::Cyan)),
-        ]),
-        Line::from(vec![
-            Span::styled("  database.url:         ", Style::default().fg(Color::DarkGray)),
-            Span::styled("postgres://localhost:5432/gaussos", Style::default().fg(Color::Green)),
-        ]),
-        Line::from(vec![
-            Span::styled("  cache.strategy:       ", Style::default().fg(Color::DarkGray)),
-            Span::styled("ARC", Style::default().fg(Color::Yellow)),
-        ]),
-        Line::from(vec![
-            Span::styled("  performance.simd:     ", Style::default().fg(Color::DarkGray)),
-            Span::styled("enabled", Style::default().fg(Color::Green)),
-        ]),
-        Line::from(vec![
-            Span::styled("  performance.lockfree: ", Style::default().fg(Color::DarkGray)),
-            Span::styled("enabled", Style::default().fg(Color::Green)),
-        ]),
+        kv("server.url", app.server_url.clone(), Color::White),
+        kv("server.status", conn.0.to_string(), conn.1),
         Line::from(""),
-        Line::from(Span::styled("Press 'e' to edit | 's' to save | 'r' to reload", Style::default().fg(Color::DarkGray))),
+        Line::from(Span::styled("LLM provider (live)", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        kv("llm.provider", provider, Color::Cyan),
+        kv("llm.model", model, Color::White),
+        kv("llm.status", llm_state.0.to_string(), llm_state.1),
+        Line::from(""),
+        Line::from(Span::styled("Build features", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        kv("performance.simd", simd.to_string(), if cfg!(feature = "simd") { Color::Green } else { Color::DarkGray }),
+        kv("backend", "embedded SurrealDB (default)".to_string(), Color::Green),
+        Line::from(""),
+        Line::from(Span::styled("Values are read live from the server; edit via env vars / .env (see .env.example).", Style::default().fg(Color::DarkGray))),
     ]))
     .block(
         Block::default()
-            .title(" 󰒓 Configuration Editor ")
+            .title(" 󰒓 Configuration ")
             .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray))
+            .padding(Padding::horizontal(1)),
     );
 
     frame.render_widget(text, area);
 }
 
-fn render_query(frame: &mut Frame<'_>, area: Rect, _app: &App) {
-    let text = Paragraph::new(Text::from(vec![
+fn render_query(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "Search your memories. Type a query and press Enter.",
+            Style::default().fg(Color::DarkGray),
+        )),
         Line::from(""),
-        Line::from(Span::styled("GaussOS Query Interface", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
-        Line::from(""),
-        Line::from(Span::styled("Enter your query below:", Style::default().fg(Color::DarkGray))),
-        Line::from(""),
+        // Live input line with a block cursor.
         Line::from(vec![
             Span::styled("gaussos> ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("SELECT * FROM memories WHERE namespace = 'default' LIMIT 10", Style::default().fg(Color::White)),
+            Span::styled(app.query_input.clone(), Style::default().fg(Color::White)),
+            Span::styled("▏", Style::default().fg(Color::Cyan)),
         ]),
         Line::from(""),
-        Line::from(Span::styled("Results:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
-        Line::from(vec![
-            Span::styled("  ┌─────────────┬────────────────┬──────────┐", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(vec![
-            Span::styled("  │ id          │ name           │ type     │", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(vec![
-            Span::styled("  ├─────────────┼────────────────┼──────────┤", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(vec![
-            Span::styled("  │ ", Style::default().fg(Color::DarkGray)),
-            Span::styled("mem-001     ", Style::default().fg(Color::White)),
-            Span::styled("│ ", Style::default().fg(Color::DarkGray)),
-            Span::styled("User Prefs     ", Style::default().fg(Color::White)),
-            Span::styled("│ ", Style::default().fg(Color::DarkGray)),
-            Span::styled("Semantic ", Style::default().fg(Color::Cyan)),
-            Span::styled("│", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(vec![
-            Span::styled("  └─────────────┴────────────────┴──────────┘", Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled("1 row returned in 0.23ms", Style::default().fg(Color::Green))),
-    ]))
-    .block(
+    ];
+
+    if !app.query_ran {
+        lines.push(Line::from(Span::styled(
+            "Examples:  rust memory   ·   surrealdb   ·   forgetting curve",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else if app.query_results.is_empty() {
+        lines.push(Line::from(Span::styled("No matching memories.", Style::default().fg(Color::Yellow))));
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled(format!("{} result(s)", app.query_results.len()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(""));
+        // Column header.
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:<10} {:<8} ", "TYPE", "QUALITY"), Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)),
+            Span::styled("CONTENT", Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD)),
+        ]));
+        for r in &app.query_results {
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {:<10} ", truncate(&r.mem_type, 10)), Style::default().fg(Color::Cyan)),
+                Span::styled(format!("{:<8.2} ", r.quality), Style::default().fg(Color::Green)),
+                Span::styled(truncate(&r.content, 60), Style::default().fg(Color::White)),
+            ]));
+        }
+    }
+
+    let text = Paragraph::new(Text::from(lines)).block(
         Block::default()
             .title(" 󰘳 Query REPL ")
             .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray))
+            .border_style(Style::default().fg(Color::Cyan))
+            .padding(Padding::horizontal(1)),
     );
 
     frame.render_widget(text, area);
@@ -1201,6 +1425,20 @@ fn render_help(frame: &mut Frame<'_>, area: Rect, _app: &App) {
         Line::from(vec![
             Span::styled("  refresh     ", Style::default().fg(Color::Magenta)),
             Span::styled("Refresh current view", Style::default().fg(Color::White)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("Query REPL (tab 7):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
+        Line::from(vec![
+            Span::styled("  type…       ", Style::default().fg(Color::Green)),
+            Span::styled("Edit the query (keys go to the input on this tab)", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter       ", Style::default().fg(Color::Green)),
+            Span::styled("Run the search against the live server", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Tab         ", Style::default().fg(Color::Green)),
+            Span::styled("Leave the Query tab", Style::default().fg(Color::White)),
         ]),
     ]))
     .block(
