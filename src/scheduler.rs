@@ -175,6 +175,11 @@ impl TaskScheduler {
         }
     }
 
+    /// Whether the scheduler's executor loop is currently running.
+    pub async fn is_running(&self) -> bool {
+        *self.is_running.read().await
+    }
+
     /// Start the scheduler
     pub async fn start(&mut self) -> Result<()> {
         if *self.is_running.read().await {
@@ -416,12 +421,35 @@ impl TaskScheduler {
         }
     }
 
-    /// Calculate next cron run time (simplified implementation)
-    fn calculate_next_cron_run(&self, _cron_expr: &str) -> Option<DateTime<Utc>> {
-        // In a real implementation, use a cron parsing library
-        // For now, return next day at 2 AM
-        let tomorrow = Utc::now().date_naive() + chrono::Days::new(1);
-        tomorrow.and_hms_opt(2, 0, 0).map(|dt| dt.and_utc())
+    /// Calculate the next cron run time. Honours the minute and hour fields of a
+    /// standard 5-field expression (`min hour dom mon dow`), which covers the
+    /// common cases (daily at HH:MM, hourly at :MM, every minute). Day/month/
+    /// weekday fields are treated as wildcards. Unparseable expressions fall
+    /// back to one hour out.
+    fn calculate_next_cron_run(&self, cron_expr: &str) -> Option<DateTime<Utc>> {
+        use chrono::Timelike;
+        let parts: Vec<&str> = cron_expr.split_whitespace().collect();
+        if parts.len() < 2 {
+            return Some(Utc::now() + chrono::Duration::hours(1));
+        }
+        let minute_field = parts[0];
+        let hour_field = parts[1];
+        let now = Utc::now();
+
+        // Scan minute-by-minute up to 48h ahead for the next matching slot.
+        for i in 1..=(48 * 60) {
+            let cand = (now + chrono::Duration::minutes(i))
+                .with_second(0)
+                .and_then(|t| t.with_nanosecond(0))?;
+            let minute_ok =
+                minute_field == "*" || minute_field.parse::<u32>().ok() == Some(cand.minute());
+            let hour_ok =
+                hour_field == "*" || hour_field.parse::<u32>().ok() == Some(cand.hour());
+            if minute_ok && hour_ok {
+                return Some(cand);
+            }
+        }
+        Some(now + chrono::Duration::hours(1))
     }
 
     /// Process tasks that are due to run
@@ -653,24 +681,37 @@ impl TaskScheduler {
         }
     }
 
-    /// Execute memory maintenance task
-    async fn execute_memory_maintenance(_database: &Arc<dyn MemVault>) -> Result<()> {
-        tracing::info!("Executing memory maintenance");
-        // TODO: Implement memory maintenance logic
+    /// Execute memory maintenance: delete memories whose TTL has expired.
+    async fn execute_memory_maintenance(database: &Arc<dyn MemVault>) -> Result<()> {
+        let mut query = crate::database::SearchQuery::default();
+        query.limit = None;
+        query.include_archived = true;
+        let all = database.search(&query).await?;
+        let expired: Vec<uuid::Uuid> =
+            all.iter().filter(|m| m.is_expired()).map(|m| m.id).collect();
+        let count = expired.len();
+        for id in expired {
+            database.delete(&id).await?;
+        }
+        tracing::info!("Memory maintenance: removed {} expired memories", count);
         Ok(())
     }
 
-    /// Execute session cleanup task  
+    /// Execute session cleanup. Sessions live in the API layer, not the vault,
+    /// so there is nothing for the scheduler to clean here yet.
     async fn execute_session_cleanup(_database: &Arc<dyn MemVault>) -> Result<()> {
-        tracing::info!("Executing session cleanup");
-        // TODO: Implement session cleanup logic
+        tracing::debug!("Session cleanup: no vault-backed sessions to expire");
         Ok(())
     }
 
-    /// Execute database maintenance task
-    async fn execute_database_maintenance(_database: &Arc<dyn MemVault>) -> Result<()> {
-        tracing::info!("Executing database maintenance");
-        // TODO: Implement database maintenance logic
+    /// Execute database maintenance by invoking the backend's optimize routine.
+    async fn execute_database_maintenance(database: &Arc<dyn MemVault>) -> Result<()> {
+        let result = database.optimize().await?;
+        tracing::info!(
+            "Database maintenance: {} operation(s), {} bytes reclaimed",
+            result.operations_performed.len(),
+            result.space_reclaimed_bytes
+        );
         Ok(())
     }
 }

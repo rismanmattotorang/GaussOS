@@ -170,22 +170,30 @@ impl GaussOS {
             let mut state = self.state.write().await;
             state.last_health_check = Utc::now();
 
-            // Update database health
-            state.component_health.database = match self.database.get_stats().await {
-                Ok(stats) => {
-                    if stats.total_memories > 0 {
-                        HealthStatus::Healthy
-                    } else {
-                        HealthStatus::Warning
-                    }
-                }
-                Err(_) => HealthStatus::Critical,
+            // Update database health from a real probe. An empty store is
+            // healthy (operational), not a warning.
+            state.component_health.database = match self.database.health_check().await {
+                Ok(status) => match status.status {
+                    crate::database::HealthLevel::Healthy => HealthStatus::Healthy,
+                    crate::database::HealthLevel::Warning => HealthStatus::Warning,
+                    _ => HealthStatus::Critical,
+                },
+                // Fall back to a stats probe if the backend has no health_check.
+                Err(_) => match self.database.get_stats().await {
+                    Ok(_) => HealthStatus::Healthy,
+                    Err(_) => HealthStatus::Critical,
+                },
             };
 
-            // Other components would be checked similarly
+            // The API and memory manager are in-process; they are healthy while
+            // the process is serving. The scheduler reflects whether it is running.
             state.component_health.api = HealthStatus::Healthy;
-            state.component_health.scheduler = HealthStatus::Healthy;
             state.component_health.memory_manager = HealthStatus::Healthy;
+            state.component_health.scheduler = if self.scheduler.is_running().await {
+                HealthStatus::Healthy
+            } else {
+                HealthStatus::Warning
+            };
         }
 
         Ok(self.get_health().await)
