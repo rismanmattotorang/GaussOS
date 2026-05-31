@@ -500,15 +500,40 @@ impl AgentOrchestrator {
     async fn execute_conversation_task(
         &self,
         _agent: &AgentInstance,
-        _messages: Vec<ConversationEntry>,
+        messages: Vec<ConversationEntry>,
         _context: HashMap<String, serde_json::Value>,
     ) -> Result<serde_json::Value> {
-        // Placeholder for conversation handling
-        // In a real implementation, this would integrate with LLM APIs
-        Ok(serde_json::json!({
-            "response": "Conversation task executed successfully",
-            "status": "completed"
-        }))
+        let client = crate::agents::llm::AnthropicClient::from_env();
+
+        // Without an API key, report honestly rather than fabricating a reply.
+        if !client.is_configured() {
+            return Ok(serde_json::json!({
+                "status": "llm_not_configured",
+                "provider": "anthropic",
+                "response": "Agent LLM is not configured. Set ANTHROPIC_API_KEY to enable live responses.",
+            }));
+        }
+
+        let system = "You are an assistant agent running inside the GaussOS \
+                      memory platform. Be concise and accurate.";
+        let turns: Vec<crate::agents::llm::ChatTurn> = messages
+            .iter()
+            .map(|m| crate::agents::llm::ChatTurn::new(m.role.clone(), m.content.clone()))
+            .collect();
+
+        match client.complete(system, &turns).await {
+            Ok(text) => Ok(serde_json::json!({
+                "status": "completed",
+                "provider": "anthropic",
+                "model": client.model(),
+                "response": text,
+            })),
+            Err(e) => Ok(serde_json::json!({
+                "status": "error",
+                "provider": "anthropic",
+                "error": e.to_string(),
+            })),
+        }
     }
 
     async fn execute_workflow_task(

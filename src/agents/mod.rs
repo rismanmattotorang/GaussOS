@@ -1,9 +1,12 @@
 pub mod analytics;
 pub mod conversation;
 pub mod external_tools;
+pub mod llm;
 pub mod memory_tools;
 pub mod orchestrator;
 pub mod tools;
+
+pub use llm::{AnthropicClient, ChatTurn};
 
 pub use analytics::{AgentAnalytics, PerformanceMetrics, UsageStats};
 pub use conversation::{ConversationContext, ConversationHistory, ConversationManager};
