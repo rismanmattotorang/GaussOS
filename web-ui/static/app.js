@@ -23,7 +23,9 @@ class GaussOSApp {
     async init() {
         this.applyTheme();
         this.setupEventListeners();
-        this.initWebSocket();
+        // Note: live metrics arrive via SSE (/events/metrics) + a 5s poll of
+        // /api/v1/metrics. The Deno UI server does not proxy a WebSocket, so we
+        // intentionally don't open one (it would just reconnect-loop).
         this.initSSE();
         await this.loadInitialData();
         this.startMetricsPolling();
@@ -139,16 +141,8 @@ class GaussOSApp {
     // ===== Data Loading =====
     async loadInitialData() {
         try {
-            const [health, memories, agents] = await Promise.allSettled([
-                this.api('/health').catch(() => ({ status: 'unknown' })),
-                this.api('/memories?limit=100').catch(() => ({ memories: [] })),
-                this.api('/agents').catch(() => [])
-            ]);
-
-            if (health.status === 'fulfilled') this.state.health = health.value;
-            if (memories.status === 'fulfilled') this.state.memories = memories.value.memories || [];
-            if (agents.status === 'fulfilled') this.state.agents = agents.value || [];
-
+            const health = await this.api('/health').catch(() => ({ status: 'unknown' }));
+            this.state.health = health;
             this.renderCurrentPage();
         } catch (error) {
             console.error('Failed to load initial data:', error);
@@ -163,16 +157,11 @@ class GaussOSApp {
 
     updateMetricsDisplay() {
         const m = this.state.metrics;
-        // Show real values from the backend; default to 0 rather than invented
+        // Live values from the backend; default to 0 rather than invented
         // numbers so the dashboard never displays fabricated data.
-        this.updateElement('stat-requests', this.formatNumber(m.requests ?? 0));
         this.updateElement('stat-memories', this.formatNumber(m.memories ?? 0));
-        this.updateElement('stat-cache', `${(m.cache ?? 0).toFixed(1)}%`);
-        this.updateElement('stat-agents', m.agents ?? 0);
-        
-        if (this.charts.performance) {
-            this.updatePerformanceChart(m);
-        }
+        this.updateElement('stat-facts', this.formatNumber(m.facts ?? 0));
+        this.updateElement('stat-vectors', this.formatNumber(m.vectors ?? m.vector_index_size ?? 0));
     }
 
     updatePerformanceChart(data) {
@@ -241,10 +230,6 @@ class GaussOSApp {
             case 'memories': this.renderMemories(); break;
             case 'playground': this.renderPlayground(); break;
             case 'kg': this.renderKnowledgeGraph(); break;
-            case 'agents': this.renderAgents(); break;
-            case 'analytics': this.renderAnalytics(); break;
-            case 'graphs': this.renderGraphs(); break;
-            case 'logs': this.renderLogs(); break;
             case 'settings': this.renderSettings(); break;
         }
     }
@@ -252,13 +237,65 @@ class GaussOSApp {
     // ===== Retrieval Playground (white-box BM25 vs vector vs hybrid) =====
     renderPlayground() {
         const runBtn = document.getElementById('pg-run');
-        if (!runBtn || runBtn.dataset.wired) return;
-        runBtn.dataset.wired = '1';
-        const run = () => this.runRetrievalCompare();
-        runBtn.addEventListener('click', run);
-        document.getElementById('pg-query')?.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') run();
-        });
+        if (runBtn && !runBtn.dataset.wired) {
+            runBtn.dataset.wired = '1';
+            const run = () => this.runRetrievalCompare();
+            runBtn.addEventListener('click', run);
+            document.getElementById('pg-query')?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') run();
+            });
+
+            // Add-a-memory controls.
+            document.getElementById('pg-add')?.addEventListener('click', () => this.playgroundAddMemory());
+            document.getElementById('pg-add-text')?.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') this.playgroundAddMemory();
+            });
+            document.getElementById('pg-seed')?.addEventListener('click', async () => {
+                await this.seedSampleMemories();
+                this.refreshPgExamples();
+            });
+
+            this.refreshPgExamples();
+        }
+    }
+
+    // Clickable example queries that fill the query box and run.
+    refreshPgExamples() {
+        const box = document.getElementById('pg-examples');
+        if (!box) return;
+        const examples = ['dark roast coffee', 'how does hybrid retrieval work?', 'what is GaussOS written in?'];
+        box.querySelectorAll('.pg-chip').forEach((c) => c.remove());
+        for (const ex of examples) {
+            const chip = document.createElement('button');
+            chip.className = 'pg-chip btn btn-ghost';
+            chip.style.cssText = 'font-size:.8rem; padding:.2rem .6rem;';
+            chip.textContent = ex;
+            chip.addEventListener('click', () => {
+                const q = document.getElementById('pg-query');
+                if (q) q.value = ex;
+                this.runRetrievalCompare();
+            });
+            box.appendChild(chip);
+        }
+    }
+
+    async playgroundAddMemory() {
+        const text = (document.getElementById('pg-add-text')?.value || '').trim();
+        const ns = (document.getElementById('pg-add-ns')?.value || '').trim() || 'demo';
+        const out = document.getElementById('pg-add-out');
+        if (!text) { this.showNotification('Type something to remember first', 'warning'); return; }
+        try {
+            await this.api('/memories', {
+                method: 'POST',
+                body: JSON.stringify({ payload: { Text: text }, tags: [], namespace: ns, quality_score: 0.8 }),
+            });
+            if (out) out.textContent = `Stored in "${ns}". Add more, or run a query below.`;
+            const el = document.getElementById('pg-add-text');
+            if (el) el.value = '';
+            this.showNotification('Memory stored', 'success');
+        } catch (e) {
+            if (out) out.textContent = `Error: ${e.message || e}`;
+        }
     }
 
     async runRetrievalCompare() {
@@ -266,8 +303,10 @@ class GaussOSApp {
         const namespace = (document.getElementById('pg-namespace')?.value || '').trim();
         const results = document.getElementById('pg-results');
         const meta = document.getElementById('pg-meta');
+        const runBtn = document.getElementById('pg-run');
         if (!text) { this.showNotification('Enter a query first', 'warning'); return; }
         if (meta) meta.textContent = 'Running…';
+        if (runBtn) { runBtn.disabled = true; runBtn.textContent = 'Running…'; }
         try {
             const body = { text, top_k: 8 };
             if (namespace) body.namespace = namespace;
@@ -275,14 +314,39 @@ class GaussOSApp {
                 method: 'POST',
                 body: JSON.stringify(body),
             });
-            if (meta) meta.textContent = `Candidate pool: ${data.candidate_pool} memories`;
+
+            // Empty store → guide the user to add/seed data instead of three
+            // bare "No results" columns.
+            if ((data.candidate_pool ?? 0) === 0) {
+                if (meta) meta.textContent = '';
+                results.innerHTML = `
+                    <div class="card" style="grid-column:1/-1;">
+                        <div class="card-body" style="text-align:center; padding:2rem;">
+                            <div style="font-size:2rem;">🗂️</div>
+                            <h3 style="margin:.5rem 0;">No memories to search yet</h3>
+                            <p style="color:var(--text-muted,#888); margin-bottom:1rem;">
+                                ${namespace ? `Namespace "<code>${this.escapeHtml(namespace)}</code>" is empty. ` : ''}Add a memory above, or seed sample data to try it instantly.
+                            </p>
+                            <button class="btn btn-primary" id="pg-empty-seed">Seed sample data</button>
+                        </div>
+                    </div>`;
+                document.getElementById('pg-empty-seed')?.addEventListener('click', async () => {
+                    await this.seedSampleMemories();
+                    this.runRetrievalCompare();
+                });
+                return;
+            }
+
+            if (meta) meta.innerHTML = `Searched <strong>${data.candidate_pool}</strong> memories. ` +
+                `<span style="color:var(--text-muted,#888);">Lexical = keyword overlap (BM25) · Vector = semantic similarity · Hybrid = both fused by RRF + recency.</span>`;
             const columns = [
-                ['Lexical (BM25)', data.lexical || []],
-                ['Vector', data.vector || []],
-                ['Hybrid (RRF)', data.hybrid || []],
+                ['Lexical (BM25)', 'keyword match', data.lexical || []],
+                ['Vector', 'semantic match', data.vector || []],
+                ['Hybrid (RRF)', 'fused ranking', data.hybrid || []],
             ];
-            results.innerHTML = columns.map(([title, list]) => `
-                <div class="card"><div class="card-header"><h3 class="card-title">${title}</h3></div>
+            results.innerHTML = columns.map(([title, subtitle, list]) => `
+                <div class="card"><div class="card-header"><h3 class="card-title">${title}</h3>
+                <span class="page-description" style="margin:0;">${subtitle}</span></div>
                 <div class="card-body">${
                     list.length ? list.map((r, i) => `
                         <div style="padding:.5rem 0; border-bottom:1px solid var(--border-subtle,#222);">
@@ -294,10 +358,12 @@ class GaussOSApp {
                                 · recency=${(r.recency_score ?? 0).toFixed(2)}
                             </div>
                         </div>`).join('')
-                    : '<p style="color:var(--text-muted,#888);">No results</p>'
+                    : '<p style="color:var(--text-muted,#888);">No results in this ranker</p>'
                 }</div></div>`).join('');
         } catch (e) {
             if (meta) meta.textContent = `Error: ${e.message || e}`;
+        } finally {
+            if (runBtn) { runBtn.disabled = false; runBtn.textContent = 'Run comparison'; }
         }
     }
 
@@ -408,8 +474,33 @@ class GaussOSApp {
     }
 
     // ===== Page Renderers =====
-    renderDashboard() {
-        this.initPerformanceChart();
+    async renderDashboard() {
+        // Wire the quick-start buttons once.
+        const seed = document.getElementById('dash-seed');
+        if (seed && !seed.dataset.wired) {
+            seed.dataset.wired = '1';
+            seed.addEventListener('click', async () => {
+                const out = document.getElementById('dash-seed-out');
+                if (out) out.textContent = 'Seeding…';
+                await this.seedSampleMemories();
+                if (out) out.textContent = 'Done — open the Retrieval Playground and run a query.';
+            });
+            document.getElementById('dash-playground')?.addEventListener('click', () => this.navigateTo('playground'));
+            document.getElementById('dash-kg')?.addEventListener('click', () => this.navigateTo('kg'));
+        }
+        // Pull live counts immediately (don't wait for the next poll tick).
+        try {
+            const m = await this.api('/metrics');
+            this.updateMetrics({ memories: m.memories, facts: m.facts, vectors: m.vector_index_size });
+        } catch { /* offline — stats stay at — */ }
+        // Show the active LLM provider in the stat card.
+        const llm = document.getElementById('stat-llm');
+        if (llm) {
+            try {
+                const s = await this.api('/llm/status');
+                llm.textContent = s.configured ? s.provider : `${s.provider} (no key)`;
+            } catch { llm.textContent = 'unavailable'; }
+        }
     }
 
     // ===== Memory Explorer (faceted, live) =====
@@ -497,9 +588,15 @@ class GaussOSApp {
     }
 
     commands() {
-        const pages = ['dashboard', 'memories', 'playground', 'analytics', 'graphs', 'agents', 'logs', 'settings'];
-        const nav = pages.map(p => ({
-            label: `Go to ${p.charAt(0).toUpperCase() + p.slice(1)}`,
+        const pages = [
+            ['dashboard', 'Dashboard'],
+            ['playground', 'Retrieval Playground'],
+            ['memories', 'Memories'],
+            ['kg', 'Knowledge Graph'],
+            ['settings', 'Settings'],
+        ];
+        const nav = pages.map(([p, label]) => ({
+            label: `Go to ${label}`,
             run: () => this.navigateTo(p),
         }));
         return [

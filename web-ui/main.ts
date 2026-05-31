@@ -116,43 +116,13 @@ async function handleApi(req: Request, path: string): Promise<Response> {
         }
     }
     
-    // Return mock data if backend is unavailable (for development/demo)
+    // Backend unreachable: report it honestly rather than fabricating data.
+    // (Fake metrics/memories would mislead anyone evaluating the engine.)
     console.warn(`Backend unavailable after ${RETRY_CONFIG.maxRetries} attempts:`, lastError?.message);
-    return new Response(JSON.stringify(getMockData(path)), {
-        headers: { 
-            "Content-Type": "application/json",
-            "X-Mock-Data": "true",
-        },
-    });
-}
-
-// Mock data for demo
-function getMockData(path: string): unknown {
-    if (path.includes("/health")) {
-        return { status: "healthy", uptime: 3600, version: "3.0.0" };
-    }
-    if (path.includes("/metrics")) {
-        return {
-            cpu_usage: 25 + Math.random() * 20,
-            memory_usage: 45 + Math.random() * 10,
-            requests_per_second: 12000 + Math.floor(Math.random() * 2000),
-            cache_hit_rate: 94 + Math.random() * 2,
-        };
-    }
-    if (path.includes("/memories")) {
-        return [
-            { id: "mem-001", name: "User Context", type: "Semantic", namespace: "default" },
-            { id: "mem-002", name: "Chat History", type: "Episodic", namespace: "conversations" },
-            { id: "mem-003", name: "Model Params", type: "Parametric", namespace: "models" },
-        ];
-    }
-    if (path.includes("/agents")) {
-        return [
-            { id: "agent-001", name: "ConversationAgent", status: "active", executions: 1542 },
-            { id: "agent-002", name: "DataAnalyzer", status: "idle", executions: 89 },
-        ];
-    }
-    return { message: "OK" };
+    return new Response(
+        JSON.stringify({ error: "backend_unavailable", detail: lastError?.message ?? "unknown" }),
+        { status: 503, headers: { "Content-Type": "application/json", "X-Backend-Status": "unavailable" } },
+    );
 }
 
 // Metrics SSE stream — polls the backend for REAL metrics and forwards them.
@@ -176,10 +146,10 @@ function handleMetricsStream(): Response {
                     data = {
                         cpu: m.cpu_usage_percent ?? 0,
                         memory: m.memory_usage_mb ?? 0,
-                        requests: m.requests ?? 0,
                         memories: m.memories ?? 0,
-                        cache: m.cache ?? 0,
-                        agents: m.agents ?? 0,
+                        facts: m.facts ?? 0,
+                        vectors: m.vector_index_size ?? 0,
+                        storage_bytes: m.storage_bytes ?? 0,
                         timestamp: Date.now(),
                         source: "backend",
                     };
@@ -248,17 +218,17 @@ function createHtml(): string {
                         </svg>
                         <span>Dashboard</span>
                     </a>
-                    <a class="nav-item" data-page="analytics">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M3 3v18h18"/>
-                            <path d="M7 12l4-4 4 4 5-5"/>
-                        </svg>
-                        <span>Analytics</span>
-                    </a>
                 </div>
-                
+
                 <div class="nav-group">
-                    <div class="nav-group-title">Data</div>
+                    <div class="nav-group-title">Test the memory</div>
+                    <a class="nav-item" data-page="playground">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="7"/>
+                            <path d="M21 21l-4.3-4.3"/>
+                        </svg>
+                        <span>Retrieval Playground</span>
+                    </a>
                     <a class="nav-item" data-page="memories">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="12" cy="12" r="10"/>
@@ -269,26 +239,6 @@ function createHtml(): string {
                             <path d="M18 12h4"/>
                         </svg>
                         <span>Memories</span>
-                    </a>
-                    <a class="nav-item" data-page="playground">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="11" cy="11" r="7"/>
-                            <path d="M21 21l-4.3-4.3"/>
-                        </svg>
-                        <span>Retrieval Playground</span>
-                    </a>
-                    <a class="nav-item" data-page="graphs">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="6" cy="6" r="3"/>
-                            <circle cx="18" cy="6" r="3"/>
-                            <circle cx="6" cy="18" r="3"/>
-                            <circle cx="18" cy="18" r="3"/>
-                            <path d="M9 6h6"/>
-                            <path d="M6 9v6"/>
-                            <path d="M18 9v6"/>
-                            <path d="M9 18h6"/>
-                        </svg>
-                        <span>Graph Explorer</span>
                     </a>
                     <a class="nav-item" data-page="kg">
                         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -301,30 +251,6 @@ function createHtml(): string {
                     </a>
                 </div>
 
-                <div class="nav-group">
-                    <div class="nav-group-title">Operations</div>
-                    <a class="nav-item" data-page="agents">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="4" y="4" width="16" height="16" rx="2"/>
-                            <path d="M9 9h6v6H9z"/>
-                            <path d="M4 9h2"/>
-                            <path d="M18 9h2"/>
-                            <path d="M4 15h2"/>
-                            <path d="M18 15h2"/>
-                        </svg>
-                        <span>Agents</span>
-                    </a>
-                    <a class="nav-item" data-page="logs">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M4 4h16v16H4z"/>
-                            <path d="M8 8h8"/>
-                            <path d="M8 12h8"/>
-                            <path d="M8 16h4"/>
-                        </svg>
-                        <span>Logs</span>
-                    </a>
-                </div>
-                
                 <div class="nav-group">
                     <div class="nav-group-title">System</div>
                     <a class="nav-item" data-page="settings">
@@ -409,144 +335,56 @@ function createHtml(): string {
             <!-- Dashboard Page -->
             <div class="page" id="page-dashboard">
                 <div class="page-header animate-fade-in">
-                    <h1 class="page-title">Welcome to GaussOS</h1>
-                    <p class="page-description">Your AI Memory Management Platform - Real-time system overview</p>
+                    <h1 class="page-title">GaussOS</h1>
+                    <p class="page-description">Long-term memory for AI agents — store memories, then see <em>exactly why</em> each one is retrieved. All numbers below are live from your instance.</p>
                 </div>
-                
-                <!-- Stats Grid -->
+
+                <!-- Stats Grid (live from /api/v1/metrics) -->
                 <div class="stats-grid">
                     <div class="stat-card animate-fade-in stagger-1">
-                        <div class="stat-icon">⚡</div>
-                        <div class="stat-value" id="stat-requests">—</div>
-                        <div class="stat-label">Requests / Second</div>
-                        
-                    </div>
-                    <div class="stat-card animate-fade-in stagger-2">
                         <div class="stat-icon">💾</div>
                         <div class="stat-value" id="stat-memories">—</div>
-                        <div class="stat-label">Total Memories</div>
-                        
+                        <div class="stat-label">Memories stored</div>
+                    </div>
+                    <div class="stat-card animate-fade-in stagger-2">
+                        <div class="stat-icon">🕸️</div>
+                        <div class="stat-value" id="stat-facts">—</div>
+                        <div class="stat-label">Facts in graph</div>
                     </div>
                     <div class="stat-card animate-fade-in stagger-3">
-                        <div class="stat-icon">🎯</div>
-                        <div class="stat-value" id="stat-cache">—</div>
-                        <div class="stat-label">Cache Hit Rate</div>
-                        
+                        <div class="stat-icon">🧭</div>
+                        <div class="stat-value" id="stat-vectors">—</div>
+                        <div class="stat-label">Vectors indexed</div>
                     </div>
                     <div class="stat-card animate-fade-in stagger-4">
                         <div class="stat-icon">🤖</div>
-                        <div class="stat-value" id="stat-agents">—</div>
-                        <div class="stat-label">Active Agents</div>
-                        <div class="stat-trend">Healthy</div>
+                        <div class="stat-value" id="stat-llm" style="font-size:1.1rem;">—</div>
+                        <div class="stat-label">LLM provider</div>
                     </div>
                 </div>
-                
-                <!-- Dashboard Grid -->
-                <div class="dashboard-grid">
-                    <div class="card wide animate-fade-in">
-                        <div class="card-header">
-                            <h3 class="card-title">
-                                <svg class="card-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M3 3v18h18"/>
-                                    <path d="M7 12l4-4 4 4 5-5"/>
-                                </svg>
-                                System Performance
-                            </h3>
-                            <div class="card-actions">
-                                <button class="btn btn-ghost">Last 24h</button>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            <div class="chart-container">
-                                <canvas id="performance-chart"></canvas>
-                            </div>
-                        </div>
+
+                <!-- Quick start -->
+                <div class="card wide animate-fade-in">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <svg class="card-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M5 12h14"/><path d="M12 5l7 7-7 7"/>
+                            </svg>
+                            Get started in 30 seconds
+                        </h3>
                     </div>
-                    
-                    <div class="card animate-fade-in">
-                        <div class="card-header">
-                            <h3 class="card-title">
-                                <svg class="card-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M12 2v20"/>
-                                    <path d="M2 12h20"/>
-                                    <path d="M12 2a10 10 0 0 1 10 10"/>
-                                </svg>
-                                Recent Activity
-                            </h3>
+                    <div class="card-body">
+                        <ol style="margin:0 0 1rem; padding-left:1.2rem; line-height:1.9; color:var(--text-secondary,#aaa);">
+                            <li><strong>Seed sample data</strong> (or add your own memories) so there's something to search.</li>
+                            <li>Open the <strong>Retrieval Playground</strong> and run a query.</li>
+                            <li>Compare <strong>lexical (BM25)</strong> vs <strong>vector</strong> vs <strong>hybrid (RRF)</strong> — with full score breakdowns.</li>
+                        </ol>
+                        <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+                            <button id="dash-seed" class="btn btn-primary">Seed sample data</button>
+                            <button id="dash-playground" class="btn btn-secondary">Open Retrieval Playground</button>
+                            <button id="dash-kg" class="btn btn-ghost">View Knowledge Graph</button>
                         </div>
-                        <div class="card-body">
-                            <div class="activity-list">
-                                <div class="activity-item">
-                                    <div class="activity-icon success">✓</div>
-                                    <div class="activity-content">
-                                        <div class="activity-title">Memory consolidation completed</div>
-                                        <div class="activity-meta">2 minutes ago • 1,247 memories processed</div>
-                                    </div>
-                                </div>
-                                <div class="activity-item">
-                                    <div class="activity-icon info">↑</div>
-                                    <div class="activity-content">
-                                        <div class="activity-title">Agent ConversationAgent started</div>
-                                        <div class="activity-meta">5 minutes ago • Processing queue</div>
-                                    </div>
-                                </div>
-                                <div class="activity-item">
-                                    <div class="activity-icon warning">⚠</div>
-                                    <div class="activity-content">
-                                        <div class="activity-title">Cache nearing capacity</div>
-                                        <div class="activity-meta">12 minutes ago • 85% utilized</div>
-                                    </div>
-                                </div>
-                                <div class="activity-item">
-                                    <div class="activity-icon success">✓</div>
-                                    <div class="activity-content">
-                                        <div class="activity-title">Database backup completed</div>
-                                        <div class="activity-meta">1 hour ago • 2.4 GB archived</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="card animate-fade-in">
-                        <div class="card-header">
-                            <h3 class="card-title">
-                                <svg class="card-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <rect x="4" y="4" width="16" height="16" rx="2"/>
-                                    <path d="M9 9h6v6H9z"/>
-                                </svg>
-                                Active Agents
-                            </h3>
-                            <button class="btn btn-secondary">View All</button>
-                        </div>
-                        <div class="card-body">
-                            <table class="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Agent</th>
-                                        <th>Status</th>
-                                        <th>Tasks</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td>ConversationAgent</td>
-                                        <td><span class="badge success">Active</span></td>
-                                        <td>1,542</td>
-                                    </tr>
-                                    <tr>
-                                        <td>DataAnalyzer</td>
-                                        <td><span class="badge info">Idle</span></td>
-                                        <td>89</td>
-                                    </tr>
-                                    <tr>
-                                        <td>MemoryOrganizer</td>
-                                        <td><span class="badge warning">Processing</span></td>
-                                        <td>256</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
+                        <p id="dash-seed-out" class="page-description" style="margin-top:.6rem;"></p>
                     </div>
                 </div>
             </div>
@@ -605,16 +443,41 @@ function createHtml(): string {
                     <h1 class="page-title">Retrieval Playground</h1>
                     <p class="page-description">See exactly <em>why</em> each memory is retrieved — compare lexical (BM25), vector, and fused hybrid ranking side by side with full score breakdowns. White-box retrieval no other agent-memory system exposes.</p>
                 </div>
+
+                <!-- Step 1: put something in memory -->
                 <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">1 · Add a memory</h3>
+                        <button id="pg-seed" class="btn btn-ghost">Seed sample data</button>
+                    </div>
+                    <div class="card-body">
+                        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                            <input id="pg-add-text" class="search-input" style="flex:1; min-width:260px;" placeholder="e.g. Alice prefers dark roast coffee" />
+                            <input id="pg-add-ns" class="search-input" style="max-width:180px;" placeholder="namespace (default: demo)" />
+                            <button id="pg-add" class="btn btn-secondary">Add memory</button>
+                        </div>
+                        <p id="pg-add-out" class="page-description" style="margin-top:0.5rem;"></p>
+                    </div>
+                </div>
+
+                <!-- Step 2: query it -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">2 · Run a query</h3>
+                    </div>
                     <div class="card-body">
                         <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
-                            <input id="pg-query" class="search-input" style="flex:1; min-width:240px;" placeholder="Type a query, e.g. 'rust memory engine'" />
+                            <input id="pg-query" class="search-input" style="flex:1; min-width:240px;" placeholder="e.g. what coffee does alice like?" />
                             <input id="pg-namespace" class="search-input" style="max-width:180px;" placeholder="namespace (optional)" />
                             <button id="pg-run" class="btn btn-primary">Run comparison</button>
+                        </div>
+                        <div id="pg-examples" style="margin-top:0.6rem; display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center;">
+                            <span class="page-description" style="margin:0;">Try:</span>
                         </div>
                         <p id="pg-meta" class="page-description" style="margin-top:0.5rem;"></p>
                     </div>
                 </div>
+
                 <div id="pg-results" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1rem;"></div>
             </div>
 
@@ -642,36 +505,6 @@ function createHtml(): string {
                 </div>
             </div>
 
-            <!-- Agents Page -->
-            <div class="page" id="page-agents" style="display: none;">
-                <div class="page-header">
-                    <h1 class="page-title">Agent Manager</h1>
-                    <p class="page-description">Monitor and control your AI agents</p>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title">Active Agents</h3>
-                        <button class="btn btn-primary">+ Deploy Agent</button>
-                    </div>
-                    <div class="card-body">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Name</th>
-                                    <th>Status</th>
-                                    <th>Executions</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="agents-list">
-                                <!-- Populated by JavaScript -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-            
             <!-- Settings Page -->
             <div class="page" id="page-settings" style="display: none;">
                 <div class="page-header">
@@ -704,176 +537,6 @@ function createHtml(): string {
         </main>
     </div>
     
-    <script>
-        // Initialize application
-        document.addEventListener('DOMContentLoaded', () => {
-            initNavigation();
-            initCharts();
-            initMetricsStream();
-            loadData();
-        });
-        
-        // Navigation
-        function initNavigation() {
-            document.querySelectorAll('.nav-item[data-page]').forEach(item => {
-                item.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    const page = item.dataset.page;
-                    
-                    // Update active state
-                    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-                    item.classList.add('active');
-                    
-                    // Show page
-                    document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
-                    const targetPage = document.getElementById('page-' + page);
-                    if (targetPage) {
-                        targetPage.style.display = 'block';
-                    }
-                    
-                    // Update breadcrumb
-                    document.getElementById('current-page-title').textContent = 
-                        item.querySelector('span').textContent;
-                });
-            });
-        }
-        
-        // Charts
-        function initCharts() {
-            const ctx = document.getElementById('performance-chart');
-            if (!ctx || typeof Chart === 'undefined') return;
-            
-            const gradient = ctx.getContext('2d').createLinearGradient(0, 0, 0, 300);
-            gradient.addColorStop(0, 'rgba(0, 217, 255, 0.3)');
-            gradient.addColorStop(1, 'rgba(0, 217, 255, 0)');
-            
-            new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: Array.from({length: 24}, (_, i) => i + ':00'),
-                    datasets: [{
-                        label: 'Requests/sec',
-                        data: Array.from({length: 24}, () => 10000 + Math.random() * 4000),
-                        borderColor: '#00d9ff',
-                        backgroundColor: gradient,
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 0,
-                    }, {
-                        label: 'Latency (ms)',
-                        data: Array.from({length: 24}, () => 2 + Math.random() * 5),
-                        borderColor: '#ff00aa',
-                        backgroundColor: 'transparent',
-                        tension: 0.4,
-                        pointRadius: 0,
-                        yAxisID: 'y1',
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: true,
-                            position: 'top',
-                            labels: {
-                                color: '#94a3b8',
-                                usePointStyle: true,
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: 'rgba(255,255,255,0.05)' },
-                            ticks: { color: '#64748b' }
-                        },
-                        y: {
-                            grid: { color: 'rgba(255,255,255,0.05)' },
-                            ticks: { color: '#64748b' }
-                        },
-                        y1: {
-                            position: 'right',
-                            grid: { display: false },
-                            ticks: { color: '#64748b' }
-                        }
-                    }
-                }
-            });
-        }
-        
-        // Real-time metrics via SSE
-        function initMetricsStream() {
-            const eventSource = new EventSource('/events/metrics');
-            
-            eventSource.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                
-                document.getElementById('stat-requests').textContent = 
-                    Math.floor(data.requests).toLocaleString();
-                document.getElementById('stat-cache').textContent = 
-                    data.cache.toFixed(1) + '%';
-            };
-            
-            eventSource.onerror = () => {
-                console.warn('SSE connection lost, reconnecting...');
-            };
-        }
-        
-        // Load data
-        async function loadData() {
-            // Load memories
-            try {
-                const memories = await fetch('/api/v1/memories').then(r => r.json());
-                const list = document.getElementById('memories-list');
-                if (list) {
-                    list.innerHTML = memories.map(m => \`
-                        <tr>
-                            <td><code>\${m.id}</code></td>
-                            <td>\${m.name}</td>
-                            <td><span class="badge info">\${m.type}</span></td>
-                            <td>\${m.namespace}</td>
-                            <td>
-                                <button class="btn btn-ghost">View</button>
-                                <button class="btn btn-ghost">Edit</button>
-                            </td>
-                        </tr>
-                    \`).join('');
-                }
-            } catch (e) {
-                console.error('Failed to load memories:', e);
-            }
-            
-            // Load agents
-            try {
-                const agents = await fetch('/api/v1/agents').then(r => r.json());
-                const list = document.getElementById('agents-list');
-                if (list) {
-                    list.innerHTML = agents.map(a => \`
-                        <tr>
-                            <td><code>\${a.id}</code></td>
-                            <td>\${a.name}</td>
-                            <td><span class="badge \${a.status === 'active' ? 'success' : 'info'}">\${a.status}</span></td>
-                            <td>\${a.executions.toLocaleString()}</td>
-                            <td>
-                                <button class="btn btn-ghost">Details</button>
-                                <button class="btn btn-ghost">\${a.status === 'active' ? 'Stop' : 'Start'}</button>
-                            </td>
-                        </tr>
-                    \`).join('');
-                }
-            } catch (e) {
-                console.error('Failed to load agents:', e);
-            }
-        }
-        
-        // Keyboard shortcuts
-        document.addEventListener('keydown', (e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-                e.preventDefault();
-                document.querySelector('.search-input').focus();
-            }
-        });
-    </script>
 </body>
 </html>`;
 }
