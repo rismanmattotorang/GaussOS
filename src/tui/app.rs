@@ -130,6 +130,25 @@ impl ServerClient {
         Ok((nodes.len(), edges, top))
     }
 
+    /// Run a sleep-time forgetting pass over a namespace.
+    /// Returns (retained, archived, forgotten).
+    pub async fn run_forgetting(&self, namespace: &str, delete: bool) -> Result<(usize, usize, usize)> {
+        let body = serde_json::json!({ "namespace": namespace, "delete_forgotten": delete });
+        let resp = self.client
+            .post(format!("{}/api/v1/admin/forget", self.base_url))
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| GaussOSError::NetworkError(e.to_string()))?;
+        let d: serde_json::Value = resp.json().await
+            .map_err(|e| GaussOSError::SerializationError(e.to_string()))?;
+        Ok((
+            d.get("retained").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+            d.get("archived").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+            d.get("forgotten").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        ))
+    }
+
     /// Fetch the active LLM provider status: (provider, model, configured).
     pub async fn get_llm_status(&self) -> Result<(String, String, bool)> {
         let resp = self.client
@@ -342,6 +361,12 @@ pub struct App {
     pub llm_provider: String,
     pub llm_model: String,
     pub llm_configured: bool,
+
+    /// Memory-list quick filter (vim-style `/`)
+    pub filter_active: bool,
+    pub filter_input: String,
+    /// Pending forgetting pass on a namespace (processed by the async loop)
+    pub forget_pending: Option<String>,
 }
 
 /// Memory item representation
@@ -429,6 +454,9 @@ impl App {
             llm_provider: String::new(),
             llm_model: String::new(),
             llm_configured: false,
+            filter_active: false,
+            filter_input: String::new(),
+            forget_pending: None,
         };
 
         // Load initial data if connected
@@ -527,6 +555,69 @@ impl App {
         self.add_log("INFO", "Data refreshed from server");
     }
 
+    /// Execute a forgetting pass on `namespace` and report the outcome.
+    pub async fn run_forget(&mut self, namespace: &str) {
+        match self.server_client.run_forgetting(namespace, false).await {
+            Ok((retained, archived, forgotten)) => {
+                self.status_message = Some((
+                    format!(
+                        "Forgetting '{}': retained {} · archived {} · forgotten {}",
+                        namespace, retained, archived, forgotten
+                    ),
+                    Instant::now(),
+                ));
+                self.add_log("INFO", &format!("Forgetting pass on '{}'", namespace));
+                self.loading = true; // refresh lists afterwards
+            }
+            Err(e) => self.show_error(&format!("Forgetting pass failed: {}", e)),
+        }
+    }
+
+    /// Indices into `memory_items` matching the current `/` filter (all when
+    /// the filter is empty). Case-insensitive over name/type/namespace/id.
+    pub fn visible_memory_indices(&self) -> Vec<usize> {
+        let f = self.filter_input.to_lowercase();
+        self.memory_items
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| {
+                f.is_empty()
+                    || m.name.to_lowercase().contains(&f)
+                    || m.memory_type.to_lowercase().contains(&f)
+                    || m.namespace.to_lowercase().contains(&f)
+                    || m.id.to_lowercase().contains(&f)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Namespace of the currently selected (visible) memory, if any.
+    fn selected_memory_namespace(&self) -> Option<String> {
+        let visible = self.visible_memory_indices();
+        let sel = self.list_state.selected()?;
+        visible.get(sel).map(|&i| self.memory_items[i].namespace.clone())
+    }
+
+    /// Active alerts derived from real signals (shown in the footer).
+    pub fn alerts(&self) -> Vec<(String, Color)> {
+        let mut out = Vec::new();
+        if !self.connected {
+            out.push(("server offline".to_string(), Color::Red));
+        }
+        if self.metrics.cpu_usage > 85.0 {
+            out.push((format!("CPU {:.0}%", self.metrics.cpu_usage), Color::Red));
+        } else if self.metrics.cpu_usage > 70.0 {
+            out.push((format!("CPU {:.0}%", self.metrics.cpu_usage), Color::Yellow));
+        }
+        if self.connected && self.metrics.cache_hit_rate > 0.0 && self.metrics.cache_hit_rate < 0.5 {
+            out.push((
+                format!("cache hit {:.0}%", self.metrics.cache_hit_rate * 100.0),
+                Color::Yellow,
+            ));
+        }
+        out
+    }
+
     /// Execute the pending query against the server and store results.
     pub async fn run_query(&mut self) {
         let q = self.query_input.trim().to_string();
@@ -605,6 +696,27 @@ impl App {
             return;
         }
 
+        // Memory-list quick-filter input mode (vim-style `/`).
+        if self.filter_active {
+            match key.code {
+                KeyCode::Esc => {
+                    self.filter_active = false;
+                    self.filter_input.clear();
+                }
+                KeyCode::Enter => self.filter_active = false, // keep the filter applied
+                KeyCode::Char(c) => {
+                    self.filter_input.push(c);
+                    self.list_state.select(Some(0));
+                }
+                KeyCode::Backspace => {
+                    self.filter_input.pop();
+                    self.list_state.select(Some(0));
+                }
+                _ => {}
+            }
+            return;
+        }
+
         // On the Query tab, printable keys edit the query (REPL input mode).
         // Tab/BackTab/Esc and Ctrl-chords still fall through to global handling
         // so the user can navigate away or quit.
@@ -657,6 +769,16 @@ impl App {
                 let prev_idx = if current_idx == 0 { tabs.len() - 1 } else { current_idx - 1 };
                 self.current_tab = tabs[prev_idx];
             }
+            KeyCode::Char('/') if self.current_tab == AppTab::Memories => {
+                self.filter_active = true;
+                self.filter_input.clear();
+                self.list_state.select(Some(0));
+            }
+            KeyCode::Char('F') => {
+                let ns = self.selected_memory_namespace().unwrap_or_else(|| "default".to_string());
+                self.status_message = Some((format!("Running forgetting pass on '{}'…", ns), Instant::now()));
+                self.forget_pending = Some(ns);
+            }
             KeyCode::Up | KeyCode::Char('k') => {
                 self.select_previous();
             }
@@ -665,6 +787,7 @@ impl App {
             }
             KeyCode::Esc => {
                 self.status_message = None;
+                self.filter_input.clear();
             }
             _ => {}
         }
@@ -672,7 +795,7 @@ impl App {
 
     fn select_next(&mut self) {
         let items_len = match self.current_tab {
-            AppTab::Memories => self.memory_items.len(),
+            AppTab::Memories => self.visible_memory_indices().len(),
             AppTab::Agents => self.agent_items.len(),
             AppTab::Logs => self.log_entries.len(),
             _ => 0,
@@ -688,7 +811,7 @@ impl App {
 
     fn select_previous(&mut self) {
         let items_len = match self.current_tab {
-            AppTab::Memories => self.memory_items.len(),
+            AppTab::Memories => self.visible_memory_indices().len(),
             AppTab::Agents => self.agent_items.len(),
             AppTab::Logs => self.log_entries.len(),
             _ => 0,
@@ -780,6 +903,11 @@ pub async fn run_app(mut terminal: DefaultTerminal, mut app: App) -> Result<()> 
         if app.query_pending {
             app.query_pending = false;
             app.run_query().await;
+        }
+
+        // Execute a pending forgetting pass.
+        if let Some(ns) = app.forget_pending.take() {
+            app.run_forget(&ns).await;
         }
 
         // Handle async refresh if loading flag is set
@@ -1098,7 +1226,9 @@ fn render_stat_card(frame: &mut Frame<'_>, area: Rect, title: &str, value: &str,
 }
 
 fn render_memories(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
-    let items: Vec<ListItem<'_>> = app.memory_items.iter().map(|mem| {
+    let visible = app.visible_memory_indices();
+    let items: Vec<ListItem<'_>> = visible.iter().map(|&i| {
+        let mem = &app.memory_items[i];
         let type_color = match mem.memory_type.as_str() {
             "Semantic" => Color::Cyan,
             "Episodic" => Color::Magenta,
@@ -1107,25 +1237,34 @@ fn render_memories(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
             _ => Color::White,
         };
         ListItem::new(Line::from(vec![
-            Span::styled(&mem.id, Style::default().fg(Color::DarkGray)),
+            Span::styled(mem.id.clone(), Style::default().fg(Color::DarkGray)),
             Span::raw(" │ "),
-            Span::styled(&mem.name, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(mem.name.clone(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             Span::raw(" │ "),
-            Span::styled(&mem.memory_type, Style::default().fg(type_color)),
+            Span::styled(mem.memory_type.clone(), Style::default().fg(type_color)),
             Span::raw(" │ "),
-            Span::styled(&mem.namespace, Style::default().fg(Color::Blue)),
+            Span::styled(mem.namespace.clone(), Style::default().fg(Color::Blue)),
             Span::raw(" │ "),
             Span::styled(format!("{} bytes", mem.size_bytes), Style::default().fg(Color::DarkGray)),
         ]))
     }).collect();
 
+    // Title shows the active/edited filter so it's obvious why the list is cut.
+    let title = if app.filter_active {
+        format!(" 󰍉 Memory Browser  —  /{}▏ ({} match) ", app.filter_input, visible.len())
+    } else if !app.filter_input.is_empty() {
+        format!(" 󰍉 Memory Browser  —  filter:'{}' ({} match, Esc to clear) ", app.filter_input, visible.len())
+    } else {
+        " 󰍉 Memory Browser  —  press / to filter, F to run forgetting ".to_string()
+    };
+
     let list = List::new(items)
         .block(
             Block::default()
-                .title(" 󰍉 Memory Browser ")
+                .title(title)
                 .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray))
+                .border_style(Style::default().fg(if app.filter_active { Color::Cyan } else { Color::DarkGray }))
                 .padding(Padding::horizontal(1))
         )
         .highlight_style(Style::default().bg(Color::Rgb(50, 50, 80)).add_modifier(Modifier::BOLD))
@@ -1453,14 +1592,26 @@ fn render_help(frame: &mut Frame<'_>, area: Rect, _app: &App) {
 }
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let status = if let Some((msg, _)) = &app.status_message {
-        Span::styled(msg, Style::default().fg(Color::Yellow))
+    // Alerts take priority in the status slot; otherwise show the status message.
+    let alerts = app.alerts();
+    let status = if let Some((sev_msg, color)) = alerts.first() {
+        let extra = if alerts.len() > 1 { format!(" (+{} more)", alerts.len() - 1) } else { String::new() };
+        Span::styled(
+            format!("⚠ {}{}", sev_msg, extra),
+            Style::default().fg(*color).add_modifier(Modifier::BOLD),
+        )
+    } else if let Some((msg, _)) = &app.status_message {
+        Span::styled(msg.clone(), Style::default().fg(Color::Yellow))
     } else {
-        Span::styled("Ready", Style::default().fg(Color::Green))
+        Span::styled("● Ready".to_string(), Style::default().fg(Color::Green))
     };
 
     let footer = Paragraph::new(Line::from(vec![
-        Span::styled(" Ctrl+K: Command Palette ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Ctrl+K: Palette ", Style::default().fg(Color::DarkGray)),
+        Span::raw("│"),
+        Span::styled(" /: Filter ", Style::default().fg(Color::DarkGray)),
+        Span::raw("│"),
+        Span::styled(" F: Forget ", Style::default().fg(Color::DarkGray)),
         Span::raw("│"),
         Span::styled(" ?: Help ", Style::default().fg(Color::DarkGray)),
         Span::raw("│"),
@@ -1471,7 +1622,7 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray))
+            .border_style(Style::default().fg(Color::DarkGray)),
     );
 
     frame.render_widget(footer, area);

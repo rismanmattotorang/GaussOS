@@ -114,16 +114,18 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
 22. **✅ Query REPL.** An interactive search REPL: type on the Query tab (keys go
     to the input, Tab leaves), press Enter to run a live `/api/v1/memories/search`,
     and see real results (type · quality · content). The Help screen documents it.
-23. **🟡 Real ops views.** ✅ Knowledge Graph tab shows live entity/relation
-    counts + a degree bar-chart of top entities (`GET /api/v1/facts/graph`);
-    ✅ Config tab shows the live server URL, connection, LLM provider/model/status
-    (`/api/v1/llm/status`) and build features — all honest, no mock data.
-    🧭 Remaining: vim‑style fuzzy find, a dedicated alerts pane, and an in‑TUI
-    forgetting‑pass control.
+23. **✅ Real ops views + controls.** Knowledge Graph tab: live entity/relation
+    counts + degree bar-chart (`GET /api/v1/facts/graph`). Config tab: live
+    server URL, connection, LLM provider/model/status, build features. **`/`
+    vim-style quick-filter** for the Memory Browser (live, case-insensitive;
+    title shows the query + match count). **`F` in-TUI forgetting pass** on the
+    selected namespace (`POST /api/v1/admin/forget`, result in the status bar).
+    **Alerts** (offline / high CPU / low cache hit) surfaced in the footer.
 
 > Implemented intuitively: the Query tab is a focused input with examples and a
-> visible cursor; Help (tab 8 / `?`) lists every key including the REPL; the
-> footer shows ⌘K and quit. The `tui/*.rs` stub modules remain as future homes
+> visible cursor; `/` filters with an obvious title; the footer always shows the
+> key legend (Palette · Filter · Forget · Help · Quit) and the top alert; Help
+> (`?`) documents every key. The `tui/*.rs` stub modules remain as future homes
 > for extracting these views from `app.rs`.
 
 ## Phase 5 — Platform & operations
