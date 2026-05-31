@@ -64,10 +64,20 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
 11. **✅ Quantized ANN search path.** `memory/ann/quantized_index.rs` implements
     binary pre‑filter (Hamming/popcount) → int8 rescore ("oversample +
     rescore"): ~3.5× smaller than f32 with high recall (tested vs brute force).
-12. **🧭 SIMD/AVX‑512 distance kernels** for cosine/L2/Hamming, behind `simd`.
-13. **🧭 Lock‑free, sharded vector index** for concurrent insert/search; arena
-    allocation for `MemCube` payloads to cut allocator pressure.
-14. **🧭 Columnar episodic store** for fast time‑range scans of the L0 layer.
+12. **✅ Auto‑vectorising distance kernels** (`memory/ann/distance.rs`) for
+    dot/cosine/L2/Hamming — 8‑lane independent accumulators the compiler lowers
+    to packed SIMD (AVX/AVX‑512 with `target‑cpu=native`); no unsafe, portable.
+    🧭 Remaining: arena allocation for `MemCube` payloads.
+13. **✅ Sharded vector index** (`memory/ann/sharded.rs`): `ShardedHnsw`
+    partitions vectors across N per‑shard‑locked HNSW graphs so writers to
+    different shards don't contend; queries fan out and merge a global top‑k.
+14. **✅ Columnar episodic store** (`memory/episodic.rs`): time‑sorted columns
+    with O(log n) binary‑search range queries, recent/namespace views, and
+    retention pruning for the L0 layer.
+
+> Remaining Phase 2 (tracked): HNSW incremental compaction is done; mmap /
+> DiskANN on‑disk tier and `MemCube` arena allocation are deferred to a future
+> performance pass.
 
 ## Phase 3 — Web UI / UX (elegant, professional, real‑time)
 

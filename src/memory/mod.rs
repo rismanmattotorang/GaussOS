@@ -4,6 +4,7 @@
 pub mod ann;
 pub mod community;
 pub mod decay;
+pub mod episodic;
 pub mod eval;
 pub mod extraction;
 pub mod graph_retrieval;
@@ -30,7 +31,11 @@ pub use schemas::{
     ConversationSummarySchema, ExtractionMode, MemorySchema, PromptOptimizationSchema,
     SchemaRegistry, UserProfileSchema,
 };
-pub use ann::{BinaryQuantized, Distance, Hnsw, HnswConfig, Neighbor, QuantizedIndex, ScalarQuantized};
+pub use ann::{
+    BinaryQuantized, Distance, Hnsw, HnswConfig, Neighbor, QuantizedIndex, ScalarQuantized,
+    ShardedHnsw,
+};
+pub use episodic::{EpisodicEvent, EpisodicStore};
 pub use community::{detect_communities, Community, CommunityConfig};
 pub use decay::{DecayConfig, ForgettingCurve, RetentionAction, RetentionPlan, RetentionScore};
 pub use eval::{evaluate, EvalCase, RetrievalMetrics};

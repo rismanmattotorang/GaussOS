@@ -7,10 +7,13 @@
 //! * [`quantized_index`] — a flat quantized index using binary pre-filter +
 //!   scalar rescore (the "oversample + rescore" pattern).
 
+pub mod distance;
 pub mod hnsw;
 pub mod quantization;
 pub mod quantized_index;
+pub mod sharded;
 
 pub use hnsw::{Distance, Hnsw, HnswConfig, Neighbor};
 pub use quantization::{BinaryQuantized, ScalarQuantized};
 pub use quantized_index::QuantizedIndex;
+pub use sharded::ShardedHnsw;

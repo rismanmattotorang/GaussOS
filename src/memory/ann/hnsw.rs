@@ -477,6 +477,47 @@ impl Hnsw {
         bincode::serialize(&snapshot).unwrap_or_default()
     }
 
+    /// Rebuild the graph from only its live nodes, physically dropping
+    /// tombstoned entries (incremental compaction). Re-links from scratch using
+    /// the stored vectors, so search quality is fully restored after many
+    /// deletes. Cheap to call during idle/maintenance.
+    pub fn compact(&mut self) {
+        let live: Vec<(Uuid, Vec<f32>)> = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !self.tombstoned[*i])
+            .map(|(_, n)| (n.id, n.vector.clone()))
+            .collect();
+        let mut fresh = Hnsw::new(self.distance, self.config.clone());
+        for (id, vector) in live {
+            fresh.insert(id, vector);
+        }
+        *self = fresh;
+    }
+
+    /// Fraction of nodes that are tombstoned (a compaction trigger signal).
+    pub fn tombstone_ratio(&self) -> f32 {
+        if self.nodes.is_empty() {
+            return 0.0;
+        }
+        let dead = self.tombstoned.iter().filter(|t| **t).count();
+        dead as f32 / self.nodes.len() as f32
+    }
+
+    /// Persist the index to a file (via [`Self::to_bytes`]).
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<()> {
+        std::fs::write(path, self.to_bytes())
+            .map_err(|e| GaussOSError::ValidationError(format!("HNSW save failed: {e}")))
+    }
+
+    /// Load an index previously written by [`Self::save`].
+    pub fn load(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let bytes = std::fs::read(path)
+            .map_err(|e| GaussOSError::ValidationError(format!("HNSW load failed: {e}")))?;
+        Self::from_bytes(&bytes)
+    }
+
     /// Reconstruct an index from [`Self::to_bytes`].
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
         let snapshot: HnswSnapshot = bincode::deserialize(data)
