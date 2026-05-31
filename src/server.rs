@@ -204,6 +204,10 @@ impl GaussOSServer {
 
         // Create application state
         let app_state = AppState {
+            memory_manager: Arc::new(crate::memory::manager::MemoryManager::new_optimized(
+                self.database.clone(),
+                crate::memory::manager::MemoryManagerConfig::default(),
+            )),
             database: self.database.clone(),
             config: Arc::new(self.config.clone()),
             metrics: Arc::new(RwLock::new(ApiMetrics::default())),

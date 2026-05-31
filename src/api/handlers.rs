@@ -532,6 +532,14 @@ pub struct SearchRequest {
     pub min_quality: Option<f64>,
     #[validate(range(min = 0.0, max = 1.0))]
     pub max_quality: Option<f64>,
+    /// Use the hybrid retrieval engine (BM25 + vector + RRF + MMR).
+    #[serde(default)]
+    pub hybrid: bool,
+    /// Optional dense query embedding for semantic ranking.
+    pub embedding: Option<Vec<f32>>,
+    /// Number of ranked results to return for hybrid search.
+    #[validate(range(min = 1, max = 200))]
+    pub top_k: Option<usize>,
 }
 
 pub async fn search_memories(
@@ -543,8 +551,28 @@ pub async fn search_memories(
         return GaussOSError::ValidationError(format!("Invalid search request: {}", e)).into_response();
     }
 
+    // Hybrid path: fuse lexical + semantic ranking via the memory manager.
+    if req.hybrid || req.embedding.is_some() {
+        let hq = crate::memory::manager::HybridQuery {
+            text: req.text.clone().unwrap_or_default(),
+            embedding: req.embedding.clone(),
+            namespace: req.namespace.clone().map(MemoryNamespace),
+            candidate_pool: 200,
+            top_k: req.top_k.unwrap_or(req.limit.unwrap_or(10) as usize),
+        };
+        return match state.memory_manager.hybrid_search(&hq).await {
+            Ok(ranked) => Json(serde_json::json!({
+                "results": ranked,
+                "total": ranked.len(),
+                "mode": "hybrid",
+            }))
+            .into_response(),
+            Err(e) => e.into_response(),
+        };
+    }
+
     let mut query = SearchQuery::default();
-    
+
     if let Some(text) = req.text {
         query.text = Some(text);
     }
@@ -1418,4 +1446,116 @@ pub async fn admin_stats(State(state): State<AppState>) -> impl IntoResponse {
     });
 
     Json(admin_stats).into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Sleep-time consolidation: forgetting-curve maintenance
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize, Validate)]
+pub struct ForgetRequest {
+    /// Namespace to run the retention pass over.
+    #[validate(length(min = 1, max = 200))]
+    pub namespace: String,
+    /// Whether to delete memories below the forget threshold (default: archive only).
+    #[serde(default)]
+    pub delete_forgotten: bool,
+}
+
+/// Run a forgetting-curve pass over a namespace: demote cold memories out of
+/// the hot caches and, optionally, delete those below the forget threshold.
+pub async fn forget_memories(
+    State(state): State<AppState>,
+    Json(req): Json<ForgetRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = req.validate() {
+        return GaussOSError::ValidationError(format!("Invalid forget request: {}", e))
+            .into_response();
+    }
+
+    let namespace = MemoryNamespace(req.namespace);
+    match state
+        .memory_manager
+        .run_forgetting_pass(&namespace, req.delete_forgotten)
+        .await
+    {
+        Ok(plan) => Json(serde_json::json!({
+            "retained": plan.retain.len(),
+            "archived": plan.archive.len(),
+            "forgotten": plan.forget.len(),
+            "deleted": req.delete_forgotten,
+            "plan": plan,
+        }))
+        .into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bi-temporal knowledge graph
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize, Validate)]
+pub struct IngestFactRequest {
+    #[validate(length(min = 1, max = 256))]
+    pub subject: String,
+    #[validate(length(min = 1, max = 256))]
+    pub predicate: String,
+    #[validate(length(min = 1, max = 1024))]
+    pub object: String,
+    #[validate(range(min = 0.0, max = 1.0))]
+    pub confidence: Option<f32>,
+}
+
+/// Ingest a fact into the bi-temporal knowledge graph. Conflicting live facts
+/// are superseded (kept for audit), not deleted.
+pub async fn ingest_fact(
+    State(state): State<AppState>,
+    Json(req): Json<IngestFactRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = req.validate() {
+        return GaussOSError::ValidationError(format!("Invalid fact: {}", e)).into_response();
+    }
+
+    let mut fact = crate::memory::temporal::TemporalFact::new(req.subject, req.predicate, req.object);
+    if let Some(c) = req.confidence {
+        fact = fact.with_confidence(c);
+    }
+    let report = state.memory_manager.ingest_fact(fact);
+    Json(serde_json::json!({
+        "added": report.added,
+        "superseded": report.superseded,
+        "total_facts": state.memory_manager.fact_count(),
+    }))
+    .into_response()
+}
+
+/// Return all facts the system currently believes about a subject.
+pub async fn get_facts(
+    State(state): State<AppState>,
+    Path(subject): Path<String>,
+) -> impl IntoResponse {
+    let facts = state.memory_manager.current_facts_about(&subject);
+    Json(serde_json::json!({
+        "subject": subject,
+        "facts": facts,
+        "total": facts.len(),
+    }))
+    .into_response()
+}
+
+/// Return the full, ordered history of a `(subject, predicate)` attribute,
+/// including superseded records — the audit trail.
+pub async fn get_fact_history(
+    State(state): State<AppState>,
+    Path((subject, predicate)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let history = state.memory_manager.fact_history(&subject, &predicate);
+    Json(serde_json::json!({
+        "subject": subject,
+        "predicate": predicate,
+        "history": history,
+        "total": history.len(),
+    }))
+    .into_response()
 }

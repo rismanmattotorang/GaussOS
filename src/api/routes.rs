@@ -25,6 +25,10 @@ pub fn create_api_router(state: AppState) -> Router<AppState> {
         .route("/memories/:id", delete(handlers::delete_memory))
         // Memory extraction routes
         .route("/memories/extract", post(handlers::extract_memories))
+        // Bi-temporal knowledge-graph routes
+        .route("/facts", post(handlers::ingest_fact))
+        .route("/facts/:subject", get(handlers::get_facts))
+        .route("/facts/:subject/:predicate", get(handlers::get_fact_history))
         // Graph routes
         .route("/graph/nodes", get(handlers::get_graph_nodes))
         .route("/graph/edges", get(handlers::get_graph_edges))
@@ -37,6 +41,7 @@ pub fn create_api_router(state: AppState) -> Router<AppState> {
         .route("/admin/backup", post(handlers::create_backup))
         .route("/admin/restore", post(handlers::restore_backup))
         .route("/admin/optimize", post(handlers::optimize_database))
+        .route("/admin/forget", post(handlers::forget_memories))
         // WebSocket routes
         .route("/ws", get(handlers::websocket_handler))
         // Add authentication middleware for protected routes

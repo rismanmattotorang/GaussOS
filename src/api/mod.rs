@@ -11,7 +11,7 @@ pub mod graphql;
 use crate::{
     database::DatabaseVault,
     error::{GaussOSError, Result},
-    memory::manager::MemoryManager,
+    memory::manager::{MemoryManager, MemoryManagerConfig},
 };
 use axum::{
     extract::{DefaultBodyLimit, State},
@@ -398,6 +398,9 @@ pub struct AppState {
     /// Database connection
     pub database: Arc<dyn crate::database::MemVault>,
 
+    /// Memory manager providing hybrid retrieval, forgetting, and temporal facts
+    pub memory_manager: Arc<MemoryManager>,
+
     /// Application configuration
     pub config: Arc<crate::config::GaussOSConfig>,
 
@@ -660,8 +663,15 @@ pub fn create_router(state: AppState) -> Router<AppState> {
 
 /// Enhanced server startup function
 pub async fn start_server(config: ApiConfig) -> crate::Result<()> {
+    let database: Arc<dyn crate::database::MemVault> = Arc::new(
+        crate::database::HybridMemoryVault::new(crate::database::HybridConfig::default()).await?,
+    );
     let app_state = AppState {
-        database: Arc::new(crate::database::HybridMemoryVault::new(crate::database::HybridConfig::default()).await?),
+        memory_manager: Arc::new(MemoryManager::new_optimized(
+            database.clone(),
+            MemoryManagerConfig::default(),
+        )),
+        database,
         config: Arc::new(crate::config::GaussOSConfig::default()),
         metrics: Arc::new(RwLock::new(ApiMetrics::default())),
         rate_limiter: None,

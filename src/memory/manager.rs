@@ -1,11 +1,15 @@
 use crate::performance::metrics as perf;
 use crate::{
-    core::{ExtractedMemory, MemCube, MemoryNamespace, MemoryPayload, Message},
+    core::{ExtractedMemory, MemCube, MemoryNamespace, MemoryPayload, Message, Priority},
     database::{MemVault, SearchQuery},
     error::Result,
+    memory::decay::{DecayConfig, ForgettingCurve, RetentionPlan},
+    memory::retrieval::{HybridRetriever, HybridSearchConfig, RetrievalCandidate, ScoredMemory},
     memory::schemas::{ExtractionContext, ExtractionMode, SchemaRegistry},
+    memory::temporal::{IngestReport, TemporalFact, TemporalFactStore},
 };
 use crossbeam_queue::SegQueue;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -55,8 +59,51 @@ pub struct MemoryManager {
     // Memory consolidation engine
     consolidation_engine: Arc<consolidation::MemoryConsolidator>,
 
+    // Forgetting-curve engine for retention decisions (sleep-time housekeeping)
+    forgetting: ForgettingCurve,
+
+    // Default hybrid-retrieval configuration
+    retrieval_config: HybridSearchConfig,
+
+    // Bi-temporal knowledge graph of extracted facts
+    temporal: Arc<RwLock<TemporalFactStore>>,
+
     // Performance tracking
     metrics: Arc<MemoryManagerMetrics>,
+}
+
+/// A request for hybrid (lexical + semantic) retrieval.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HybridQuery {
+    /// Free-text query driving BM25 lexical ranking.
+    pub text: String,
+    /// Optional dense query embedding driving semantic ranking.
+    pub embedding: Option<Vec<f32>>,
+    /// Restrict the candidate set to a namespace.
+    pub namespace: Option<MemoryNamespace>,
+    /// How many candidates to pull from the vault before re-ranking.
+    pub candidate_pool: usize,
+    /// How many ranked results to return.
+    pub top_k: usize,
+}
+
+impl Default for HybridQuery {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            embedding: None,
+            namespace: None,
+            candidate_pool: 200,
+            top_k: 10,
+        }
+    }
+}
+
+/// A retrieved memory paired with the score breakdown that ranked it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RankedMemory {
+    pub memory: MemCube,
+    pub score: ScoredMemory,
 }
 
 /// High-performance batch processor for memory operations
@@ -194,6 +241,10 @@ pub struct MemoryManagerConfig {
     pub enable_prefetching: bool,
     pub consolidation_interval_ms: u64,
     pub cache_eviction_policy: CacheEvictionPolicy,
+    /// Default hybrid-retrieval tuning.
+    pub retrieval: HybridSearchConfig,
+    /// Forgetting-curve / retention tuning.
+    pub decay: DecayConfig,
 }
 
 impl Default for MemoryManagerConfig {
@@ -207,6 +258,8 @@ impl Default for MemoryManagerConfig {
             enable_prefetching: false,
             consolidation_interval_ms: 300000, // 5 minutes
             cache_eviction_policy: CacheEvictionPolicy::LRU,
+            retrieval: HybridSearchConfig::default(),
+            decay: DecayConfig::default(),
         }
     }
 }
@@ -256,6 +309,9 @@ impl MemoryManager {
             l3_cache,
             batch_processor: Arc::new(BatchProcessor::new(config.batch_config)),
             consolidation_engine,
+            forgetting: ForgettingCurve::new(config.decay),
+            retrieval_config: config.retrieval,
+            temporal: Arc::new(RwLock::new(TemporalFactStore::new())),
             metrics: Arc::new(MemoryManagerMetrics::new()),
         };
 
@@ -875,6 +931,111 @@ impl MemoryManager {
             cache_misses: self.metrics.cache_misses.load(Ordering::Relaxed),
             total_operations: self.metrics.cache_hits.load(Ordering::Relaxed) + self.metrics.cache_misses.load(Ordering::Relaxed),
         }
+    }
+}
+
+impl MemoryManager {
+    /// Hybrid lexical + semantic retrieval over a namespace-scoped candidate
+    /// pool, fused with Reciprocal Rank Fusion and re-ranked for diversity and
+    /// recency. Returns each memory paired with its score breakdown.
+    pub async fn hybrid_search(&self, query: &HybridQuery) -> Result<Vec<RankedMemory>> {
+        let start = std::time::Instant::now();
+
+        // 1. Pull a candidate pool from the vault (cheap pre-filter).
+        let mut vault_query = SearchQuery::default();
+        if let Some(ns) = &query.namespace {
+            vault_query.namespace = Some(ns.0.clone());
+            vault_query.include_child_namespaces = true;
+        }
+        if !query.text.is_empty() {
+            vault_query.text = Some(query.text.clone());
+        }
+        vault_query.limit = Some(query.candidate_pool as u64);
+        let candidates = self.vault.search(&vault_query).await?;
+
+        // 2. Re-rank in-process with the hybrid engine.
+        let by_id: HashMap<Uuid, MemCube> = candidates.iter().map(|m| (m.id, m.clone())).collect();
+        let retrieval_candidates: Vec<RetrievalCandidate> =
+            candidates.iter().map(RetrievalCandidate::from_memcube).collect();
+
+        let mut cfg = self.retrieval_config.clone();
+        cfg.top_k = query.top_k;
+        let retriever = HybridRetriever::new(retrieval_candidates, cfg);
+        let scored = retriever.search(&query.text, query.embedding.as_deref());
+
+        // 3. Join scores back to full memory cubes.
+        let ranked = scored
+            .into_iter()
+            .filter_map(|s| by_id.get(&s.id).cloned().map(|memory| RankedMemory { memory, score: s }))
+            .collect();
+
+        self.record_operation_time(start);
+        perf::incr("memory.hybrid_search_total");
+        Ok(ranked)
+    }
+
+    /// Run a forgetting-curve pass over a namespace and act on the result:
+    /// archived memories are demoted out of the hot caches, and (optionally)
+    /// memories below the forget threshold are deleted. This is the core of a
+    /// "sleep-time" consolidation cycle.
+    pub async fn run_forgetting_pass(
+        &self,
+        namespace: &MemoryNamespace,
+        delete_forgotten: bool,
+    ) -> Result<RetentionPlan> {
+        let memories = self.get_memories_by_namespace(&namespace.0).await?;
+        let plan = self.forgetting.classify(memories.iter());
+
+        // Cool down archived memories: lower their priority and evict from hot tiers.
+        for id in &plan.archive {
+            if let Some(mut memory) = self.vault.retrieve(id).await? {
+                memory.metadata.priority = Priority::Archive;
+                self.vault.update(&memory).await?;
+                self.l1_cache.remove(id);
+                self.l2_cache.remove(id);
+            }
+        }
+
+        if delete_forgotten {
+            for id in &plan.forget {
+                self.delete_memory(id).await?;
+            }
+        }
+
+        perf::incr("memory.forgetting_pass_total");
+        Ok(plan)
+    }
+
+    /// Ingest a fact into the bi-temporal knowledge graph, automatically
+    /// superseding any conflicting live fact (kept for audit, not deleted).
+    pub fn ingest_fact(&self, fact: TemporalFact) -> IngestReport {
+        self.temporal.write().ingest(fact)
+    }
+
+    /// All facts the system currently believes about a subject.
+    pub fn current_facts_about(&self, subject: &str) -> Vec<TemporalFact> {
+        self.temporal
+            .read()
+            .facts_about(subject)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Full, ordered history of a `(subject, predicate)` attribute including
+    /// superseded records — the audit trail.
+    pub fn fact_history(&self, subject: &str, predicate: &str) -> Vec<TemporalFact> {
+        self.temporal
+            .read()
+            .history(subject, predicate)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Number of facts tracked in the temporal store.
+    pub fn fact_count(&self) -> usize {
+        self.temporal.read().len()
     }
 }
 
