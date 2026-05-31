@@ -1,0 +1,14 @@
+/target
+**/target
+.git
+logs/*.log
+test-results
+bench-results
+pids
+web-ui/dist
+web-ui/logs
+web-ui/pids
+**/*.tmp
+.env
+.env.*
+!.env.example

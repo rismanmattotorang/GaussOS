@@ -1185,6 +1185,31 @@ impl MemoryManager {
         self.temporal.read().len()
     }
 
+    /// Export every stored memory (a portable snapshot for backup/migration).
+    pub async fn export_all(&self) -> Result<Vec<MemCube>> {
+        let mut query = SearchQuery::default();
+        query.limit = None;
+        query.include_archived = true;
+        self.vault.search(&query).await
+    }
+
+    /// Import a batch of memories (restore from a snapshot), indexing any
+    /// embeddings for ANN search. Returns the number imported.
+    pub async fn import_memories(&self, memories: Vec<MemCube>) -> Result<usize> {
+        let n = memories.len();
+        self.vault.batch_store(&memories).await?;
+        {
+            let mut index = self.vector_index.write();
+            for m in &memories {
+                if let Some(e) = m.payload_embedding() {
+                    index.insert(m.id, e.clone());
+                }
+            }
+        }
+        perf::incr("memory.import_total");
+        Ok(n)
+    }
+
     /// Approximate-nearest-neighbour search over indexed embeddings using the
     /// HNSW graph (sublinear, vs the brute-force candidate re-rank in
     /// [`Self::hybrid_search`]). Returns ids with similarity scores.

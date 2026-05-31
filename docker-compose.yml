@@ -1,0 +1,40 @@
+# GaussOS quickstart: the API server + the Deno web UI.
+# Usage:  docker compose up --build
+#   API:    http://localhost:8080
+#   Web UI: http://localhost:3000
+#
+# The default backend is the embedded SurrealDB, so no database container is
+# required. Set an LLM key (e.g. OPENAI_API_KEY) to enable the agent layer.
+
+services:
+  gaussos:
+    build: .
+    image: gaussos:latest
+    ports:
+      - "8080:8080"
+    environment:
+      RUST_LOG: info
+      # Pick a provider + key to enable the agent layer (optional):
+      # LLM_PROVIDER: openai
+      # OPENAI_API_KEY: ${OPENAI_API_KEY}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/gaussos", "--version"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  web-ui:
+    image: denoland/deno:alpine
+    working_dir: /app
+    command: ["run", "--allow-net", "--allow-read", "--allow-env", "main.ts"]
+    volumes:
+      - ./web-ui:/app
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      BACKEND_URL: "http://gaussos:8080"
+    depends_on:
+      - gaussos
+    restart: unless-stopped

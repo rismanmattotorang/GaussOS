@@ -658,6 +658,10 @@ pub fn create_router(state: AppState) -> Router<AppState> {
         .route("/api/v1/retrieval/compare", post(handlers::retrieval_compare))
         // Active LLM provider status (for the first-run wizard / settings)
         .route("/api/v1/llm/status", get(handlers::llm_status))
+        // Snapshot backup / restore + Prometheus metrics
+        .route("/api/v1/admin/export", get(handlers::export_memories))
+        .route("/api/v1/admin/import", post(handlers::import_memories))
+        .route("/metrics/prometheus", get(handlers::metrics_prometheus))
         // Bi-temporal knowledge graph + multi-hop graph retrieval
         .route("/api/v1/facts", post(handlers::ingest_fact))
         .route("/api/v1/facts/graph", get(handlers::facts_graph))

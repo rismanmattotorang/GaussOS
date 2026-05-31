@@ -130,18 +130,26 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
 
 ## Phase 5 — Platform & operations
 
-24. **🧭 Persistence for SurrealDB embedded** (RocksDB path) with snapshot
-    backup/restore; pluggable external SurrealDB/Postgres for HA.
-25. **🧭 Distributed mode.** Sharded namespaces, replication, and a consistent
-    hashing ring for horizontal scale.
-26. **🧭 Observability.** OpenTelemetry traces, Prometheus metrics, Grafana
-    dashboards; wire the lifecycle/scheduler fully into the server runtime.
-27. **🧭 Deploy.** Distroless Docker image, Helm chart, and a one‑command
-    `docker compose` (GaussOS + optional Postgres/SurrealDB).
-28. **🧭 SDKs.** Thin Python and TypeScript clients over the REST/streaming API
-    so existing Mem0/Zep/Letta users can migrate with minimal changes.
-29. **🧭 Security & compliance.** Field‑level encryption, audit log, key
-    rotation, and per‑namespace RLS.
+24. **🟡 Snapshot backup/restore.** ✅ `GET /api/v1/admin/export` (full JSON
+    snapshot) and `POST /api/v1/admin/import` (restore/migrate), via
+    `MemoryManager::export_all`/`import_memories`; verified round-trip through the
+    Python SDK. 🧭 Remaining: RocksDB on-disk persistence + external SurrealDB/
+    Postgres for HA.
+25. **🧭 Distributed mode.** Sharded namespaces, replication, consistent-hash ring.
+26. **🟡 Observability.** ✅ Prometheus text-exposition endpoint at
+    `/metrics/prometheus` (memories, storage, vector index, facts, CPU, memory).
+    🧭 Remaining: OpenTelemetry traces + Grafana dashboards; wire lifecycle/
+    scheduler into the server runtime.
+27. **✅ Deploy.** Multi-stage `Dockerfile` (slim runtime, non-root, healthcheck)
+    + `.dockerignore` + `docker-compose.yml` (API + Deno web UI, embedded
+    SurrealDB so no DB container needed). 🧭 Remaining: Helm chart.
+28. **✅ SDKs.** Thin **Python** (`sdk/python/gaussos.py`, stdlib-only) and
+    **TypeScript** (`sdk/typescript/gaussos.ts`, fetch-based) clients covering
+    memories, hybrid/compare retrieval, bi-temporal facts, graph search,
+    export/import, and forgetting — so Mem0/Zep/Letta users can migrate easily.
+    Python compiles; TS type-checks under Deno.
+29. **🧭 Security & compliance.** Field-level encryption, audit log, key
+    rotation, per-namespace RLS.
 
 ---
 

@@ -81,6 +81,7 @@ impl GaussOSServer {
             .route("/health/live", get(crate::api::handlers::liveness_probe))
             .route("/health/ready", get(crate::api::handlers::readiness_probe))
             .route("/metrics", get(crate::api::handlers::metrics))
+            .route("/metrics/prometheus", get(crate::api::handlers::metrics_prometheus))
             .route("/status", get(crate::api::handlers::system_status));
 
         // API v1 routes
@@ -127,6 +128,9 @@ impl GaussOSServer {
             .route("/admin/restore", post(crate::api::handlers::restore_backup))
             .route("/admin/optimize", post(crate::api::handlers::optimize_database))
             .route("/admin/gc", post(crate::api::handlers::garbage_collect))
+            // Snapshot backup / restore
+            .route("/admin/export", get(crate::api::handlers::export_memories))
+            .route("/admin/import", post(crate::api::handlers::import_memories))
             // System
             .route("/system/config", get(crate::api::handlers::get_system_config))
             .route("/system/config", axum::routing::put(crate::api::handlers::update_system_config));

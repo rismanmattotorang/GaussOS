@@ -1709,3 +1709,79 @@ pub async fn llm_status(State(_state): State<AppState>) -> impl IntoResponse {
         "configured": client.is_configured(),
     }))
 }
+
+/// Export all memories as a JSON snapshot (backup / migration).
+pub async fn export_memories(State(state): State<AppState>) -> impl IntoResponse {
+    match state.memory_manager.export_all().await {
+        Ok(memories) => Json(serde_json::json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "exported_at": Utc::now(),
+            "count": memories.len(),
+            "memories": memories,
+        }))
+        .into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ImportRequest {
+    pub memories: Vec<MemCube>,
+}
+
+/// Import memories from a snapshot produced by [`export_memories`].
+pub async fn import_memories(
+    State(state): State<AppState>,
+    Json(req): Json<ImportRequest>,
+) -> impl IntoResponse {
+    match state.memory_manager.import_memories(req.memories).await {
+        Ok(n) => Json(serde_json::json!({ "imported": n })).into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// Prometheus text-exposition metrics (scrapeable at /metrics/prometheus).
+pub async fn metrics_prometheus(State(state): State<AppState>) -> impl IntoResponse {
+    let stats = state.database.get_stats().await.unwrap_or_default();
+    let mut sys = sysinfo::System::new();
+    sys.refresh_cpu();
+    sys.refresh_memory();
+    let cpu = sys.global_cpu_info().cpu_usage() as f64;
+    let mem_used = sys.used_memory();
+    let mem_total = sys.total_memory();
+
+    let body = format!(
+        concat!(
+            "# HELP gaussos_memories_total Total stored memories.\n",
+            "# TYPE gaussos_memories_total gauge\n",
+            "gaussos_memories_total {memories}\n",
+            "# HELP gaussos_storage_bytes Approximate stored bytes.\n",
+            "# TYPE gaussos_storage_bytes gauge\n",
+            "gaussos_storage_bytes {storage}\n",
+            "# HELP gaussos_vector_index_size Vectors in the ANN index.\n",
+            "# TYPE gaussos_vector_index_size gauge\n",
+            "gaussos_vector_index_size {vindex}\n",
+            "# HELP gaussos_facts_total Facts in the bi-temporal graph.\n",
+            "# TYPE gaussos_facts_total gauge\n",
+            "gaussos_facts_total {facts}\n",
+            "# HELP gaussos_cpu_usage_percent Host CPU usage.\n",
+            "# TYPE gaussos_cpu_usage_percent gauge\n",
+            "gaussos_cpu_usage_percent {cpu:.2}\n",
+            "# HELP gaussos_memory_used_bytes Host memory used.\n",
+            "# TYPE gaussos_memory_used_bytes gauge\n",
+            "gaussos_memory_used_bytes {mem_used}\n",
+            "# HELP gaussos_memory_total_bytes Host memory total.\n",
+            "# TYPE gaussos_memory_total_bytes gauge\n",
+            "gaussos_memory_total_bytes {mem_total}\n",
+        ),
+        memories = stats.total_memories,
+        storage = stats.storage_size,
+        vindex = state.memory_manager.vector_index_len(),
+        facts = state.memory_manager.fact_count(),
+        cpu = cpu,
+        mem_used = mem_used,
+        mem_total = mem_total,
+    );
+
+    ([("content-type", "text/plain; version=0.0.4")], body)
+}
