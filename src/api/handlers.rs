@@ -889,6 +889,9 @@ pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
         "memory_usage_mb": mem_used_mb,
         "cpu_usage_percent": cpu,
         "storage_bytes": stats.storage_size,
+        // ANN index + knowledge-graph health for the ops dashboard.
+        "vector_index_size": state.memory_manager.vector_index_len(),
+        "facts": state.memory_manager.fact_count(),
         "timestamp": Utc::now()
     }))
 }
@@ -1681,4 +1684,15 @@ pub async fn retrieval_compare(
         Ok(json) => Json(json).into_response(),
         Err(e) => e.into_response(),
     }
+}
+
+/// Report the active LLM provider and whether it is configured (powers the
+/// first-run wizard and settings panel). Never returns the API key.
+pub async fn llm_status(State(_state): State<AppState>) -> impl IntoResponse {
+    let client = crate::agents::llm::LlmClient::from_env();
+    Json(serde_json::json!({
+        "provider": client.provider(),
+        "model": client.model(),
+        "configured": client.is_configured(),
+    }))
 }

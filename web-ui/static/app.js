@@ -26,6 +26,7 @@ class GaussOSApp {
         this.initSSE();
         await this.loadInitialData();
         this.startMetricsPolling();
+        this.maybeShowFirstRun();
     }
 
     // ===== API Client with Error Handling =====
@@ -393,28 +394,206 @@ class GaussOSApp {
         this.initPerformanceChart();
     }
 
+    // ===== Memory Explorer (faceted, live) =====
     renderMemories() {
+        const refresh = document.getElementById('mem-refresh');
+        if (refresh && !refresh.dataset.wired) {
+            refresh.dataset.wired = '1';
+            const go = () => this.loadMemories();
+            refresh.addEventListener('click', go);
+            document.getElementById('mem-search')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+        }
+        this.loadMemories();
+    }
+
+    async loadMemories() {
+        const val = (id) => (document.getElementById(id)?.value || '').trim();
+        const body = { limit: 100 };
+        if (val('mem-search')) body.text = val('mem-search');
+        if (val('mem-namespace')) body.namespace = val('mem-namespace');
+        if (val('mem-type')) body.payload_type = val('mem-type');
+        const minq = parseFloat(val('mem-minq'));
+        if (!Number.isNaN(minq) && minq > 0) body.min_quality = minq;
+        try {
+            const data = await this.api('/memories/search', { method: 'POST', body: JSON.stringify(body) });
+            this.state.memories = data.memories || (data.results || []).map(r => r.memory) || [];
+        } catch (e) {
+            this.state.memories = [];
+        }
+        this.renderMemoryRows();
+    }
+
+    memoryType(m) {
+        return m.payload && typeof m.payload === 'object' ? Object.keys(m.payload)[0] : (m.type || 'Unknown');
+    }
+
+    memoryContent(m) {
+        const p = m.payload;
+        if (typeof p === 'string') return p;
+        if (p && typeof p === 'object') {
+            if (typeof p.Text === 'string') return p.Text;
+            if (p.Plaintext?.content) return p.Plaintext.content;
+            if (p.Semantic?.content) return p.Semantic.content;
+            if (p.Episodic?.thread_title) return p.Episodic.thread_title;
+            if (p.Procedural?.prompt_name) return p.Procedural.prompt_name;
+        }
+        return m.metadata?.name || '';
+    }
+
+    renderMemoryRows() {
         const list = document.getElementById('memories-list');
         if (!list) return;
-        
+        const count = document.getElementById('mem-count');
+        if (count) count.textContent = `${this.state.memories.length} memories`;
         if (this.state.memories.length === 0) {
             list.innerHTML = '<tr><td colspan="5" class="empty-state">No memories found</td></tr>';
             return;
         }
-
-        list.innerHTML = this.state.memories.map(m => `
+        list.innerHTML = this.state.memories.map(m => {
+            const q = (m.metadata?.quality_score ?? 0).toFixed(2);
+            return `
             <tr>
-                <td><code>${this.escapeHtml(m.id)}</code></td>
-                <td>${this.escapeHtml(m.name || 'Unnamed')}</td>
-                <td><span class="badge info">${this.escapeHtml(m.type || 'Unknown')}</span></td>
-                <td>${this.escapeHtml(m.namespace || 'default')}</td>
-                <td>
-                    <button class="btn btn-ghost" onclick="app.viewMemory('${m.id}')">View</button>
-                    <button class="btn btn-ghost" onclick="app.editMemory('${m.id}')">Edit</button>
-                    <button class="btn btn-ghost text-danger" onclick="app.deleteMemory('${m.id}')">Delete</button>
-                </td>
-            </tr>
-        `).join('');
+                <td><span class="badge info">${this.escapeHtml(this.memoryType(m))}</span></td>
+                <td>${this.escapeHtml(this.memoryContent(m).slice(0, 80))}</td>
+                <td>${this.escapeHtml(String(m.namespace ?? 'default'))}</td>
+                <td>${q}</td>
+                <td><button class="btn btn-ghost text-danger" onclick="app.deleteMemory('${m.id}')">Delete</button></td>
+            </tr>`;
+        }).join('');
+    }
+
+    async deleteMemory(id) {
+        try {
+            await this.api(`/memories/${id}`, { method: 'DELETE' });
+            this.showNotification('Memory deleted', 'success');
+            this.loadMemories();
+        } catch (e) {
+            this.showNotification(`Delete failed: ${e.message || e}`, 'error');
+        }
+    }
+
+    // ===== Command palette (⌘K) =====
+    handleSearch(query) {
+        // The global search box opens the palette pre-filtered.
+        if (query && query.length > 0) this.openCommandPalette(query);
+    }
+
+    commands() {
+        const pages = ['dashboard', 'memories', 'playground', 'analytics', 'graphs', 'agents', 'logs', 'settings'];
+        const nav = pages.map(p => ({
+            label: `Go to ${p.charAt(0).toUpperCase() + p.slice(1)}`,
+            run: () => this.navigateTo(p),
+        }));
+        return [
+            ...nav,
+            { label: 'Seed sample memories', run: () => this.seedSampleMemories() },
+            { label: 'Toggle theme', run: () => this.toggleTheme?.() },
+        ];
+    }
+
+    openCommandPalette(initial = '') {
+        let overlay = document.getElementById('command-palette');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'command-palette';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-start;justify-content:center;z-index:9999;';
+            overlay.innerHTML = `
+                <div style="margin-top:12vh;width:min(560px,92vw);background:var(--surface-1,#12141d);border:1px solid var(--border-default,#333);border-radius:12px;overflow:hidden;box-shadow:0 16px 48px rgba(0,0,0,.6);">
+                    <input id="cmd-input" placeholder="Type a command…" style="width:100%;box-sizing:border-box;padding:14px 16px;background:transparent;border:0;border-bottom:1px solid var(--border-subtle,#222);color:var(--text-primary,#fff);font-size:1rem;outline:none;" />
+                    <div id="cmd-list" style="max-height:50vh;overflow:auto;"></div>
+                </div>`;
+            document.body.appendChild(overlay);
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) this.closeCommandPalette(); });
+            overlay.querySelector('#cmd-input').addEventListener('input', (e) => this.renderCommands(e.target.value));
+            overlay.querySelector('#cmd-input').addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') this.closeCommandPalette();
+                if (e.key === 'Enter') {
+                    const first = overlay.querySelector('.cmd-item');
+                    if (first) first.click();
+                }
+            });
+        }
+        overlay.style.display = 'flex';
+        const input = overlay.querySelector('#cmd-input');
+        input.value = initial;
+        this.renderCommands(initial);
+        input.focus();
+    }
+
+    renderCommands(filter = '') {
+        const listEl = document.getElementById('cmd-list');
+        if (!listEl) return;
+        const f = filter.toLowerCase();
+        const items = this.commands().filter(c => c.label.toLowerCase().includes(f));
+        listEl.innerHTML = items.map((c, i) => `<div class="cmd-item" data-i="${i}" style="padding:10px 16px;cursor:pointer;color:var(--text-secondary,#bbb);">${this.escapeHtml(c.label)}</div>`).join('')
+            || '<div style="padding:10px 16px;color:var(--text-muted,#888);">No commands</div>';
+        listEl.querySelectorAll('.cmd-item').forEach(el => {
+            el.addEventListener('mouseenter', () => el.style.background = 'var(--surface-hover,rgba(255,255,255,.05))');
+            el.addEventListener('mouseleave', () => el.style.background = 'transparent');
+            el.addEventListener('click', () => {
+                const cmd = items[parseInt(el.dataset.i, 10)];
+                this.closeCommandPalette();
+                cmd?.run?.();
+            });
+        });
+    }
+
+    closeCommandPalette() {
+        const overlay = document.getElementById('command-palette');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    // ===== First-run wizard =====
+    async maybeShowFirstRun() {
+        try {
+            if (localStorage.getItem('gaussos_onboarded')) return;
+        } catch { /* ignore */ }
+        let status = { provider: 'unknown', model: '', configured: false };
+        try { status = await this.api('/llm/status'); } catch { /* offline */ }
+        const configured = status.configured;
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:10000;';
+        overlay.innerHTML = `
+            <div style="width:min(540px,92vw);background:var(--surface-1,#12141d);border:1px solid var(--border-default,#333);border-radius:16px;padding:28px;box-shadow:0 16px 48px rgba(0,0,0,.6);">
+                <h2 style="margin:0 0 8px;color:var(--text-primary,#fff);">🧠 Welcome to GaussOS</h2>
+                <p style="color:var(--text-secondary,#aaa);margin:0 0 16px;">The superior agent-memory engine, by Gaussian Technologies.</p>
+                <div style="padding:12px 14px;border:1px solid var(--border-subtle,#222);border-radius:10px;margin-bottom:16px;">
+                    <div style="color:var(--text-secondary,#aaa);font-size:.85rem;">Active LLM provider</div>
+                    <div style="color:var(--text-primary,#fff);font-family:var(--font-mono,monospace);">
+                        ${this.escapeHtml(status.provider)} · ${this.escapeHtml(status.model || '—')}
+                        ${configured ? '<span class="badge success" style="margin-left:8px;">configured</span>' : '<span class="badge warning" style="margin-left:8px;">no API key</span>'}
+                    </div>
+                    ${configured ? '' : '<div style="color:var(--text-muted,#888);font-size:.8rem;margin-top:6px;">Set LLM_PROVIDER + an API key (see .env.example) to enable live agent responses.</div>'}
+                </div>
+                <div style="display:flex;gap:.5rem;justify-content:flex-end;">
+                    <button id="fr-seed" class="btn btn-ghost">Seed sample memories</button>
+                    <button id="fr-go" class="btn btn-primary">Get started</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+        const done = () => {
+            try { localStorage.setItem('gaussos_onboarded', '1'); } catch { /* ignore */ }
+            overlay.remove();
+        };
+        overlay.querySelector('#fr-go').addEventListener('click', done);
+        overlay.querySelector('#fr-seed').addEventListener('click', async () => {
+            await this.seedSampleMemories();
+            done();
+            this.navigateTo('memories');
+        });
+    }
+
+    async seedSampleMemories() {
+        const samples = [
+            { payload: { Text: 'GaussOS uses an embedded SurrealDB backend' }, tags: ['gaussos', 'db'], namespace: 'demo', quality_score: 0.9 },
+            { payload: { Text: 'Hybrid retrieval fuses BM25 and vector search with RRF' }, tags: ['retrieval'], namespace: 'demo', quality_score: 0.8 },
+            { payload: { Text: 'The forgetting curve prunes stale memories over time' }, tags: ['memory'], namespace: 'demo', quality_score: 0.7 },
+        ];
+        let ok = 0;
+        for (const s of samples) {
+            try { await this.api('/memories', { method: 'POST', body: JSON.stringify(s) }); ok++; } catch { /* ignore */ }
+        }
+        this.showNotification(`Seeded ${ok} sample memories`, 'success');
     }
 
     renderAgents() {

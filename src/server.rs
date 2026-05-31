@@ -101,6 +101,8 @@ impl GaussOSServer {
             .route("/memories/ann-search", post(crate::api::handlers::ann_search))
             // Retrieval Playground (white-box lexical vs vector vs hybrid)
             .route("/retrieval/compare", post(crate::api::handlers::retrieval_compare))
+            // Active LLM provider status
+            .route("/llm/status", get(crate::api::handlers::llm_status))
             // Health/metrics under /api/v1 too (the web UI calls these)
             .route("/health", get(crate::api::handlers::detailed_health_check))
             .route("/metrics", get(crate::api::handlers::metrics))

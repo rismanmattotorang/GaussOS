@@ -546,21 +546,39 @@ function createHtml(): string {
             <div class="page" id="page-memories" style="display: none;">
                 <div class="page-header">
                     <h1 class="page-title">Memory Explorer</h1>
-                    <p class="page-description">Browse and manage your AI memory store</p>
+                    <p class="page-description">Browse and filter your AI memory store — faceted by namespace, type, quality, and full-text.</p>
+                </div>
+                <div class="card">
+                    <div class="card-body">
+                        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+                            <input id="mem-search" class="search-input" style="flex:1; min-width:200px;" placeholder="Search text…" />
+                            <input id="mem-namespace" class="search-input" style="max-width:160px;" placeholder="namespace" />
+                            <select id="mem-type" class="search-input" style="max-width:150px;">
+                                <option value="">any type</option>
+                                <option value="text">text</option>
+                                <option value="plaintext">plaintext</option>
+                                <option value="semantic">semantic</option>
+                                <option value="episodic">episodic</option>
+                                <option value="procedural">procedural</option>
+                            </select>
+                            <input id="mem-minq" type="number" min="0" max="1" step="0.1" class="search-input" style="max-width:120px;" placeholder="min quality" />
+                            <button id="mem-refresh" class="btn btn-primary">Search</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="card">
                     <div class="card-header">
-                        <h3 class="card-title">All Memories</h3>
-                        <button class="btn btn-primary">+ Create Memory</button>
+                        <h3 class="card-title">Results</h3>
+                        <span id="mem-count" class="page-description"></span>
                     </div>
                     <div class="card-body">
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Name</th>
                                     <th>Type</th>
+                                    <th>Content</th>
                                     <th>Namespace</th>
+                                    <th>Quality</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>

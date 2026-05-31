@@ -81,13 +81,15 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
 
 ## Phase 3 — Web UI / UX (elegant, professional, real‑time)
 
-15. **🧭 Design‑system pass.** Build on the existing "Cosmic Minimalism" tokens:
-    refine typography scale, motion (reduced‑motion aware), light/dark/system,
-    accessible contrast (WCAG AA), and a command palette (⌘K).
-    *Files:* `web-ui/static/styles.css`, `app.js`.
-16. **🧭 Memory Explorer.** Faceted search (namespace/tags/quality/date/type),
-    bi‑temporal timeline view ("as of" slider), and per‑memory provenance &
-    relationship inspector — surfacing GaussOS's unique temporal model visually.
+15. **🟡 Design‑system pass.** ✅ A working **⌘K command palette** (navigate +
+    quick actions like "Seed sample memories"/"Toggle theme") is implemented in
+    `app.js` (the prior ⌘K hook called undefined methods — fixed).
+    🧭 Remaining: typography/motion refinement, light/system themes, WCAG‑AA audit.
+16. **🟡 Memory Explorer.** ✅ Faceted, **live** search (full‑text + namespace +
+    payload type + min‑quality) wired to `POST /api/v1/memories/search`, with a
+    real results table (type/content/namespace/quality) and inline delete.
+    🧭 Remaining: bi‑temporal "as‑of" timeline slider and provenance/relationship
+    inspector.
 17. **🧭 Knowledge‑graph viewer.** Interactive entity graph (WebGL/canvas) with
     PPR result highlighting and multi‑hop path tracing.
 18. **✅ Retrieval Playground.** Side‑by‑side **lexical (BM25) vs vector vs hybrid
@@ -96,10 +98,12 @@ Status legend: ✅ done · 🟡 partial · 🧭 planned.
     Backed by `MemoryManager::compare_retrieval` and `POST /api/v1/retrieval/compare`;
     served as a Web UI page (`web-ui` nav → *Retrieval Playground*). Verified live.
     🧭 Remaining: add a PPR column.
-19. **🧭 Live ops dashboard.** Real SSE charts (done) + HNSW/index health,
-    forgetting‑pass outcomes, and per‑provider LLM latency/cost.
-20. **🧭 First‑run wizard.** Pick LLM provider, paste key, seed sample memories,
-    and land in a working dashboard in under a minute.
+19. **🟡 Live ops dashboard.** ✅ Real SSE charts + `vector_index_size` and
+    `facts` (knowledge‑graph size) added to `/api/v1/metrics`.
+    🧭 Remaining: forgetting‑pass outcome panel and per‑provider LLM latency/cost.
+20. **✅ First‑run wizard.** On first load, shows the active LLM provider/model
+    and configured state (via `GET /api/v1/llm/status`), offers one‑click
+    "Seed sample memories", and remembers completion. Verified live.
 
 ## Phase 4 — TUI (a real operator cockpit)
 

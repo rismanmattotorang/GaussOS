@@ -656,6 +656,8 @@ pub fn create_router(state: AppState) -> Router<AppState> {
         .route("/api/v1/memories/ann-search", post(handlers::ann_search))
         // Retrieval Playground: white-box lexical vs vector vs hybrid comparison
         .route("/api/v1/retrieval/compare", post(handlers::retrieval_compare))
+        // Active LLM provider status (for the first-run wizard / settings)
+        .route("/api/v1/llm/status", get(handlers::llm_status))
         // Bi-temporal knowledge graph + multi-hop graph retrieval
         .route("/api/v1/facts", post(handlers::ingest_fact))
         .route("/api/v1/facts/graph-search", post(handlers::graph_search))
