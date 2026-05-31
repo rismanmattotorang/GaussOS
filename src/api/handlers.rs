@@ -557,6 +557,9 @@ pub async fn search_memories(
             text: req.text.clone().unwrap_or_default(),
             embedding: req.embedding.clone(),
             namespace: req.namespace.clone().map(MemoryNamespace),
+            tags: req.tags.clone().unwrap_or_default(),
+            payload_type: req.payload_type.clone(),
+            min_quality: req.min_quality,
             candidate_pool: 200,
             top_k: req.top_k.unwrap_or(req.limit.unwrap_or(10) as usize),
         };
@@ -1523,8 +1526,9 @@ pub async fn ingest_fact(
     }
     let report = state.memory_manager.ingest_fact(fact);
     Json(serde_json::json!({
-        "added": report.added,
-        "superseded": report.superseded,
+        "added_id": report.added,
+        "superseded_ids": report.superseded,
+        "superseded_count": report.superseded.len(),
         "total_facts": state.memory_manager.fact_count(),
     }))
     .into_response()

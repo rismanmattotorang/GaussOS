@@ -169,7 +169,11 @@ impl TemporalFactStore {
             {
                 existing.expired_at = Some(now);
                 if existing.invalid_at.is_none() {
-                    existing.invalid_at = Some(new_valid_at);
+                    // The prior fact stops being valid when the new one takes
+                    // effect — but never before it itself became valid, so a
+                    // backdated correction can't produce invalid_at < valid_at
+                    // (which would make the record unsatisfiable in every query).
+                    existing.invalid_at = Some(new_valid_at.max(existing.valid_at));
                 }
                 superseded.push(existing.id);
             }

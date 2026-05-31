@@ -127,10 +127,16 @@ impl ForgettingCurve {
         let total_weight = self.config.recency_weight
             + self.config.frequency_weight
             + self.config.importance_weight;
-        let score = (self.config.recency_weight * recency
-            + self.config.frequency_weight * frequency
-            + self.config.importance_weight * importance)
-            / total_weight;
+        // Guard against a degenerate all-zero-weight config (would be 0/0 = NaN).
+        // Disabled scoring means "don't forget anything", so retain by default.
+        let score = if total_weight > 0.0 {
+            (self.config.recency_weight * recency
+                + self.config.frequency_weight * frequency
+                + self.config.importance_weight * importance)
+                / total_weight
+        } else {
+            1.0
+        };
 
         let action = if score < self.config.forget_threshold {
             RetentionAction::Forget

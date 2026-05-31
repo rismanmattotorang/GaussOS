@@ -81,6 +81,12 @@ pub struct HybridQuery {
     pub embedding: Option<Vec<f32>>,
     /// Restrict the candidate set to a namespace.
     pub namespace: Option<MemoryNamespace>,
+    /// Restrict the candidate set to memories carrying these tags.
+    pub tags: Vec<String>,
+    /// Restrict the candidate set to a payload type.
+    pub payload_type: Option<String>,
+    /// Minimum quality score for candidates `[0.0, 1.0]`.
+    pub min_quality: Option<f64>,
     /// How many candidates to pull from the vault before re-ranking.
     pub candidate_pool: usize,
     /// How many ranked results to return.
@@ -93,6 +99,9 @@ impl Default for HybridQuery {
             text: String::new(),
             embedding: None,
             namespace: None,
+            tags: Vec::new(),
+            payload_type: None,
+            min_quality: None,
             candidate_pool: 200,
             top_k: 10,
         }
@@ -941,7 +950,8 @@ impl MemoryManager {
     pub async fn hybrid_search(&self, query: &HybridQuery) -> Result<Vec<RankedMemory>> {
         let start = std::time::Instant::now();
 
-        // 1. Pull a candidate pool from the vault (cheap pre-filter).
+        // 1. Pull a candidate pool from the vault, pushing every caller filter
+        //    down so hybrid search honours the same constraints as plain search.
         let mut vault_query = SearchQuery::default();
         if let Some(ns) = &query.namespace {
             vault_query.namespace = Some(ns.0.clone());
@@ -950,11 +960,38 @@ impl MemoryManager {
         if !query.text.is_empty() {
             vault_query.text = Some(query.text.clone());
         }
+        if !query.tags.is_empty() {
+            vault_query.tags = query.tags.clone();
+        }
+        if let Some(pt) = &query.payload_type {
+            vault_query.payload_type = Some(pt.clone());
+        }
+        if let Some(min_q) = query.min_quality {
+            vault_query.quality_range = Some(crate::database::QualityRange {
+                min: Some(min_q),
+                max: Some(1.0),
+            });
+        }
+        // When an embedding is supplied, ask the vault for the nearest
+        // neighbours so the candidate pool is similarity-aware rather than an
+        // arbitrary slice — otherwise the true match may never be re-ranked.
+        if let Some(embedding) = &query.embedding {
+            vault_query.vector_search = Some(crate::database::VectorSearchQuery {
+                embedding: embedding.clone(),
+                similarity_threshold: 0.0,
+                metric: crate::database::SimilarityMetric::Cosine,
+                top_k: Some(query.candidate_pool),
+                ef_search: None,
+            });
+        }
         vault_query.limit = Some(query.candidate_pool as u64);
         let candidates = self.vault.search(&vault_query).await?;
 
-        // 2. Re-rank in-process with the hybrid engine.
-        let by_id: HashMap<Uuid, MemCube> = candidates.iter().map(|m| (m.id, m.clone())).collect();
+        // 2. Re-rank in-process with the hybrid engine. Build the candidate
+        //    views by borrowing; keep an id -> index map so only the surviving
+        //    top_k cubes are cloned, not the whole pool.
+        let index: HashMap<Uuid, usize> =
+            candidates.iter().enumerate().map(|(i, m)| (m.id, i)).collect();
         let retrieval_candidates: Vec<RetrievalCandidate> =
             candidates.iter().map(RetrievalCandidate::from_memcube).collect();
 
@@ -963,10 +1000,14 @@ impl MemoryManager {
         let retriever = HybridRetriever::new(retrieval_candidates, cfg);
         let scored = retriever.search(&query.text, query.embedding.as_deref());
 
-        // 3. Join scores back to full memory cubes.
+        // 3. Join scores back to full memory cubes (clone only the winners).
         let ranked = scored
             .into_iter()
-            .filter_map(|s| by_id.get(&s.id).cloned().map(|memory| RankedMemory { memory, score: s }))
+            .filter_map(|s| {
+                index
+                    .get(&s.id)
+                    .map(|&i| RankedMemory { memory: candidates[i].clone(), score: s })
+            })
             .collect();
 
         self.record_operation_time(start);

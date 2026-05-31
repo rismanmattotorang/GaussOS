@@ -136,8 +136,9 @@ fn tokenize(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Cosine similarity clamped to `[0.0, 1.0]`; returns 0 on mismatch/zero-norm.
-fn cosine(a: &[f32], b: &[f32]) -> f32 {
+/// Raw cosine similarity in `[-1.0, 1.0]`; returns 0 on mismatch/zero-norm.
+/// Used for *ranking*, where the sign matters and clamping would erase it.
+fn cosine_raw(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
@@ -152,7 +153,31 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
     if na == 0.0 || nb == 0.0 {
         return 0.0;
     }
-    (dot / (na.sqrt() * nb.sqrt())).clamp(0.0, 1.0)
+    dot / (na.sqrt() * nb.sqrt())
+}
+
+/// Cosine similarity clamped to `[0.0, 1.0]` for use as a diversity/display
+/// signal (negative similarities collapse to 0 redundancy).
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    cosine_raw(a, b).clamp(0.0, 1.0)
+}
+
+/// Token-set Jaccard similarity in `[0.0, 1.0]`; a text-only fallback for
+/// diversity when one of the candidates has no embedding.
+fn jaccard(a: &str, b: &str) -> f32 {
+    use std::collections::HashSet;
+    let sa: HashSet<&str> = a.split_whitespace().collect();
+    let sb: HashSet<&str> = b.split_whitespace().collect();
+    if sa.is_empty() && sb.is_empty() {
+        return 0.0;
+    }
+    let inter = sa.intersection(&sb).count() as f32;
+    let union = sa.union(&sb).count() as f32;
+    if union == 0.0 {
+        0.0
+    } else {
+        inter / union
+    }
 }
 
 /// A hybrid lexical + semantic retriever over a fixed candidate set.
@@ -163,8 +188,6 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 pub struct HybridRetriever {
     config: HybridSearchConfig,
     candidates: Vec<RetrievalCandidate>,
-    /// Tokenised documents, parallel to `candidates`.
-    doc_tokens: Vec<Vec<String>>,
     /// Term frequency per document.
     doc_tf: Vec<HashMap<String, u32>>,
     /// Document length (token count) per document.
@@ -177,7 +200,6 @@ pub struct HybridRetriever {
 impl HybridRetriever {
     /// Index a candidate set and precompute BM25 statistics.
     pub fn new(candidates: Vec<RetrievalCandidate>, config: HybridSearchConfig) -> Self {
-        let mut doc_tokens = Vec::with_capacity(candidates.len());
         let mut doc_tf = Vec::with_capacity(candidates.len());
         let mut doc_len = Vec::with_capacity(candidates.len());
         let mut doc_freq: HashMap<String, u32> = HashMap::new();
@@ -192,7 +214,6 @@ impl HybridRetriever {
                 *doc_freq.entry(term.clone()).or_insert(0) += 1;
             }
             doc_len.push(tokens.len());
-            doc_tokens.push(tokens);
             doc_tf.push(tf);
         }
 
@@ -206,7 +227,6 @@ impl HybridRetriever {
         Self {
             config,
             candidates,
-            doc_tokens,
             doc_tf,
             doc_len,
             doc_freq,
@@ -231,8 +251,9 @@ impl HybridRetriever {
         ((n - df + 0.5) / (df + 0.5) + 1.0).ln()
     }
 
-    /// Raw BM25 score for a single document against a tokenised query.
-    fn bm25_score(&self, doc_idx: usize, query_terms: &[String]) -> f32 {
+    /// Raw BM25 score for a single document against query terms whose IDF has
+    /// been precomputed once per query (IDF is corpus-wide, not per-document).
+    fn bm25_score(&self, doc_idx: usize, query_idf: &HashMap<&str, f32>) -> f32 {
         if self.avg_doc_len == 0.0 {
             return 0.0;
         }
@@ -242,12 +263,11 @@ impl HybridRetriever {
         let tf_map = &self.doc_tf[doc_idx];
 
         let mut score = 0.0f32;
-        for term in query_terms {
-            let tf = *tf_map.get(term).unwrap_or(&0) as f32;
+        for (term, idf) in query_idf {
+            let tf = *tf_map.get(*term).unwrap_or(&0) as f32;
             if tf == 0.0 {
                 continue;
             }
-            let idf = self.idf(term);
             let denom = tf + k1 * (1.0 - b + b * dl / self.avg_doc_len);
             score += idf * (tf * (k1 + 1.0)) / denom;
         }
@@ -267,9 +287,17 @@ impl HybridRetriever {
 
         let query_terms = tokenize(query_text);
 
+        // Precompute IDF once per unique query term (corpus-wide, not per-doc).
+        let mut query_idf: HashMap<&str, f32> = HashMap::new();
+        for term in &query_terms {
+            query_idf
+                .entry(term.as_str())
+                .or_insert_with(|| self.idf(term));
+        }
+
         // --- Lexical (BM25) ranking ---
         let mut bm25: Vec<(usize, f32)> = (0..self.candidates.len())
-            .map(|i| (i, self.bm25_score(i, &query_terms)))
+            .map(|i| (i, self.bm25_score(i, &query_idf)))
             .collect();
         bm25.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         let bm25_max = bm25.first().map(|(_, s)| *s).unwrap_or(0.0);
@@ -283,19 +311,21 @@ impl HybridRetriever {
         }
 
         // --- Semantic (vector) ranking ---
+        // Every candidate that *has* an embedding is ranked by raw cosine
+        // (sign preserved), so a query always retrieves its nearest neighbours
+        // even when the best matches have low or zero similarity. The reported
+        // score is clamped to [0,1]; ordering uses the raw value.
         let mut vec_info: HashMap<usize, (usize, f32)> = HashMap::new();
         if let Some(q) = query_embedding {
             let mut sims: Vec<(usize, f32)> = self
                 .candidates
                 .iter()
                 .enumerate()
-                .filter_map(|(i, c)| c.embedding.as_ref().map(|e| (i, cosine(q, e))))
+                .filter_map(|(i, c)| c.embedding.as_ref().map(|e| (i, cosine_raw(q, e))))
                 .collect();
             sims.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             for (rank, (idx, sim)) in sims.iter().enumerate() {
-                if *sim > 0.0 {
-                    vec_info.insert(*idx, (rank + 1, *sim));
-                }
+                vec_info.insert(*idx, (rank + 1, sim.clamp(0.0, 1.0)));
             }
         }
 
@@ -339,8 +369,8 @@ impl HybridRetriever {
 
         fused.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
 
-        if self.config.enable_mmr && query_embedding.is_some() {
-            self.mmr_rerank(fused, query_embedding)
+        if self.config.enable_mmr {
+            self.mmr_rerank(fused)
         } else {
             fused.truncate(self.config.top_k);
             fused
@@ -362,48 +392,58 @@ impl HybridRetriever {
 
     /// Maximal Marginal Relevance re-ranking for result diversity. Greedily
     /// selects the next item maximising `λ·relevance − (1−λ)·maxSimToSelected`.
-    fn mmr_rerank(
-        &self,
-        ranked: Vec<ScoredMemory>,
-        query_embedding: Option<&[f32]>,
-    ) -> Vec<ScoredMemory> {
+    /// The max-similarity-to-selected is cached and updated incrementally, so
+    /// the pass is `O(top_k · remaining)` rather than `O(top_k² · remaining)`.
+    fn mmr_rerank(&self, ranked: Vec<ScoredMemory>) -> Vec<ScoredMemory> {
         let lambda = self.config.mmr_lambda;
         let limit = self.config.top_k.min(ranked.len());
-        let mut selected: Vec<ScoredMemory> = Vec::with_capacity(limit);
-        let mut remaining: Vec<ScoredMemory> = ranked;
+        let cand_by_id: HashMap<Uuid, &RetrievalCandidate> =
+            self.candidates.iter().map(|c| (c.id, c)).collect();
 
-        // Map id -> embedding for diversity comparison.
-        let embeddings: HashMap<Uuid, &Vec<f32>> = self
-            .candidates
-            .iter()
-            .filter_map(|c| c.embedding.as_ref().map(|e| (c.id, e)))
-            .collect();
+        let mut remaining: Vec<ScoredMemory> = ranked;
+        let mut selected: Vec<ScoredMemory> = Vec::with_capacity(limit);
+        // Cached max similarity of each remaining item to the selected set.
+        let mut max_sim: Vec<f32> = vec![0.0; remaining.len()];
 
         while selected.len() < limit && !remaining.is_empty() {
             let mut best_idx = 0usize;
             let mut best_mmr = f32::NEG_INFINITY;
-
             for (i, cand) in remaining.iter().enumerate() {
-                let relevance = cand.score;
-                let max_sim = embeddings
-                    .get(&cand.id)
-                    .map(|emb| {
-                        selected
-                            .iter()
-                            .filter_map(|s| embeddings.get(&s.id))
-                            .map(|sel_emb| cosine(emb, sel_emb))
-                            .fold(0.0f32, f32::max)
-                    })
-                    .unwrap_or(0.0);
-                let mmr = lambda * relevance - (1.0 - lambda) * max_sim;
+                let mmr = lambda * cand.score - (1.0 - lambda) * max_sim[i];
                 if mmr > best_mmr {
                     best_mmr = mmr;
                     best_idx = i;
                 }
             }
-            selected.push(remaining.remove(best_idx));
+
+            let chosen = remaining.remove(best_idx);
+            max_sim.remove(best_idx);
+
+            // Refresh each remaining item's max similarity against the new pick.
+            if let Some(chosen_cand) = cand_by_id.get(&chosen.id) {
+                for (i, cand) in remaining.iter().enumerate() {
+                    if let Some(c) = cand_by_id.get(&cand.id) {
+                        let sim = Self::pair_similarity(c, chosen_cand);
+                        if sim > max_sim[i] {
+                            max_sim[i] = sim;
+                        }
+                    }
+                }
+            }
+            selected.push(chosen);
         }
         selected
+    }
+
+    /// Diversity similarity between two candidates: cosine when both carry
+    /// embeddings, otherwise token-set Jaccard on their text. This avoids the
+    /// asymmetry where embedding-less candidates would always look maximally
+    /// diverse and crowd out genuinely novel results.
+    fn pair_similarity(a: &RetrievalCandidate, b: &RetrievalCandidate) -> f32 {
+        match (a.embedding.as_ref(), b.embedding.as_ref()) {
+            (Some(ea), Some(eb)) => cosine(ea, eb),
+            _ => jaccard(&a.text, &b.text),
+        }
     }
 }
 
